@@ -8,6 +8,7 @@
 </head>
 <body>
   <header>
+    <div class="layer-control"><label for="layer-select">Layer</label><select id="layer-select"></select></div>
     <h1 id="neuron-title" tabindex="-1"></h1>
     <div class="meta" id="neuron-meta"></div>
     <form id="jump-form">
@@ -21,6 +22,7 @@
   <button class="nav prev" id="prev" aria-label="Previous neuron" title="Previous neuron (←)">‹</button>
   <main>
     <div class="stage" id="stage" aria-label="Formula tree">
+      <p id="no-formula" hidden>No formula: low activations pruned.</p>
       <div id="canvas"><svg id="tree" xmlns="http://www.w3.org/2000/svg" role="group" aria-label="Interactive formula tree"></svg></div>
     </div>
     <section class="evaluation" aria-label="Evaluation">
@@ -51,7 +53,7 @@
         <p id="source"></p><p class="fingerprint" id="fingerprint"></p>
         <p>Formula outputs under one shared concept assignment, not measured model activations.</p>
       </details>
-      <details><summary>Controls</summary><p>Click concepts to toggle true or false. Click operators to inspect their computation. Use ← and → to browse neurons. Inputs stay the same across neurons. Reset sets every concept to false.</p></details>
+      <details><summary>Controls</summary><p>Click concepts to toggle true or false. Click operators to inspect their computation. Use ← and → to browse neurons. Choose a layer to compare its formulas. Inputs stay the same across neurons and layers. Reset sets every concept to false.</p></details>
     </footer>
   </main>
   <button class="nav next" id="next" aria-label="Next neuron" title="Next neuron (→)">›</button>

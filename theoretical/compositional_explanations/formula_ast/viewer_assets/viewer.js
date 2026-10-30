@@ -3,11 +3,15 @@
 // Each record owns a display copy of its Z3 AST. Repeated concept leaves share
 // one truth value by name; selection identifies a particular tree occurrence.
 const payload = JSON.parse(document.getElementById('records').textContent);
-const records = payload.records;
+const datasetViews = payload.datasets.map(dataset => ({
+  dataset,
+  neuronIndices: new Map(dataset.records.map((record, index) => [record.neuronId, index])),
+  sortedNeurons: dataset.records.map((record, index) => ({ record, index }))
+    .sort((a, b) => a.record.neuronId - b.record.neuronId),
+  prunedCount: dataset.records.filter(record => record.ast === null).length,
+}));
 const trueConcepts = new Set();
-const neuronIndices = new Map(records.map((record, index) => [record.neuronId, index]));
-const sortedNeurons = records.map((record, index) => ({ record, index }))
-  .sort((a, b) => a.record.neuronId - b.record.neuronId);
+let activeView = datasetViews[0];
 const svgNamespace = 'http://www.w3.org/2000/svg';
 const byId = id => document.getElementById(id);
 let currentIndex = 0;
@@ -66,6 +70,7 @@ function svgElement(tag, attributes = {}, text) {
 }
 
 function sizeTree() {
+  if (!nodes.length) return;
   const stage = byId('stage');
   const scale = fitTree
     ? Math.min(1, (stage.clientWidth - 24) / treeWidth, (stage.clientHeight - 24) / treeHeight)
@@ -96,6 +101,14 @@ function inspectSelection() {
 }
 
 function refreshTree() {
+  if (activeView.dataset.records[currentIndex].ast === null) {
+    byId('output').textContent = 'Not evaluated';
+    byId('output').classList.remove('true');
+    byId('inspection-title').textContent = 'No formula';
+    byId('calculation').textContent = 'Low activations pruned.';
+    byId('expression').textContent = '';
+    return;
+  }
   for (const item of nodes) {
     const element = byId('node-' + item.id);
     const on = evaluate(item.node);
@@ -108,7 +121,7 @@ function refreshTree() {
       + ', ' + on + ', ' + (concept ? 'toggle input' : 'inspect computation'));
     byId('edge-' + item.id)?.classList.toggle('on', on);
   }
-  const output = evaluate(records[currentIndex].ast);
+  const output = evaluate(activeView.dataset.records[currentIndex].ast);
   byId('output').textContent = String(output).toUpperCase();
   byId('output').classList.toggle('true', output);
   inspectSelection();
@@ -127,7 +140,14 @@ function activateNode(item) {
 
 function drawTree() {
   nodes = [];
-  const root = measureTree(records[currentIndex].ast);
+  const ast = activeView.dataset.records[currentIndex].ast;
+  byId('no-formula').hidden = ast !== null;
+  byId('canvas').hidden = ast === null;
+  if (ast === null) {
+    byId('tree').replaceChildren();
+    return;
+  }
+  const root = measureTree(ast);
   positionTree(root, 30);
   treeWidth = root.span + 60;
   treeHeight = Math.max(...nodes.map(item => item.y)) + 66;
@@ -183,10 +203,12 @@ function drawTree() {
 }
 
 function renderCoactivation() {
-  const currentId = records[currentIndex].neuronId;
+  const currentId = activeView.dataset.records[currentIndex].neuronId;
   const others = trueNeurons.filter(({ record }) => record.neuronId !== currentId);
   byId('coactivation-count').textContent = others.length.toLocaleString()
-    + ' / ' + (records.length - 1).toLocaleString();
+    + ' / ' + (activeView.dataset.records.length - activeView.prunedCount
+      - (activeView.dataset.records[currentIndex].ast === null ? 0 : 1)).toLocaleString()
+    + ' evaluable others · ' + activeView.prunedCount.toLocaleString() + ' pruned';
   const buttons = others.map(({ record, index }) => {
     const button = document.createElement('button');
     button.textContent = 'Neuron ' + record.neuronId;
@@ -205,7 +227,7 @@ function renderCoactivation() {
 }
 
 function refreshInputs() {
-  trueNeurons = sortedNeurons.filter(({ record }) => evaluate(record.ast));
+  trueNeurons = activeView.sortedNeurons.filter(({ record }) => record.ast !== null && evaluate(record.ast));
   const chips = [...trueConcepts].sort().map(name => {
     const button = document.createElement('button');
     button.textContent = name + ' ×';
@@ -225,9 +247,9 @@ function refreshInputs() {
 function showNeuron(index, focusHeading = false) {
   currentIndex = index;
   selectedNodeId = '0';
-  const record = records[index];
+  const record = activeView.dataset.records[index];
   byId('neuron-title').textContent = 'Neuron ' + record.neuronId;
-  byId('neuron-meta').textContent = `${index + 1} / ${records.length.toLocaleString()} · IoU ${record.iou.toFixed(3)}`;
+  byId('neuron-meta').textContent = `${activeView.dataset.layer} · ${index + 1} / ${activeView.dataset.records.length.toLocaleString()} · IoU ${record.iou.toFixed(3)}`;
   byId('neuron-meta').title = 'CSV order · formula fit (intersection over union)';
   byId('neuron-id').value = record.neuronId;
   byId('jump-status').textContent = '';
@@ -242,7 +264,7 @@ function showNeuron(index, focusHeading = false) {
 }
 
 function navigate(delta) {
-  showNeuron((currentIndex + delta + records.length) % records.length);
+  showNeuron((currentIndex + delta + activeView.dataset.records.length) % activeView.dataset.records.length);
 }
 
 byId('prev').addEventListener('click', () => navigate(-1));
@@ -259,23 +281,42 @@ byId('reset').addEventListener('click', () => {
 });
 byId('jump-form').addEventListener('submit', event => {
   event.preventDefault();
-  const index = neuronIndices.get(Number(byId('neuron-id').value));
+  const index = activeView.neuronIndices.get(Number(byId('neuron-id').value));
   if (index === undefined) {
-    byId('jump-status').textContent = 'No formula for that neuron.';
+    byId('jump-status').textContent = 'No neuron with that ID in this layer.';
     return;
   }
   showNeuron(index);
 });
 document.addEventListener('keydown', event => {
-  if (event.target.matches('input') || event.ctrlKey || event.metaKey || event.altKey) return;
+  if (event.target.closest('input, select, textarea') || event.target.isContentEditable || event.ctrlKey || event.metaKey || event.altKey) return;
   if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
     event.preventDefault();
     navigate(event.key === 'ArrowLeft' ? -1 : 1);
   }
 });
 
-byId('source').textContent = payload.source + ' · formula_ast/analysis.py → Z3 AST';
-byId('fingerprint').textContent = 'CSV SHA-256 ' + payload.sha256;
-showNeuron(0);
-refreshInputs();
+function selectDataset(view) {
+  const neuronId = activeView.dataset.records[currentIndex].neuronId;
+  activeView = view;
+  byId('layer-select').value = view.dataset.id;
+  byId('source').textContent = view.dataset.source + ' · formula_ast/analysis.py → Z3 AST';
+  byId('fingerprint').textContent = 'CSV SHA-256 ' + view.dataset.sha256;
+  const index = view.neuronIndices.get(neuronId);
+  showNeuron(index ?? 0);
+  refreshInputs();
+  if (index === undefined) byId('jump-status').textContent = 'Neuron ' + neuronId + ' is absent in this layer. Showing its first row.';
+}
+
+for (const view of datasetViews) {
+  const option = document.createElement('option');
+  option.value = view.dataset.id;
+  option.textContent = view.dataset.layer;
+  byId('layer-select').append(option);
+}
+byId('layer-select').addEventListener('change', event => {
+  const view = datasetViews.find(view => view.dataset.id === event.target.value);
+  if (view !== activeView) selectDataset(view);
+});
+selectDataset(activeView);
 new ResizeObserver(sizeTree).observe(byId('stage'));

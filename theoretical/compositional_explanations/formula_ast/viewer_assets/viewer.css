@@ -9,12 +9,12 @@
   --gutter: clamp(58px, 7vw, 95px);
 }
 * { box-sizing: border-box; }
-body { margin: 0; min-width: 720px; }
-button, input { font: inherit; }
+body { margin: 0; min-width: 0; }
+button, input, select { font: inherit; }
 button { cursor: pointer; border: 1px solid var(--line); background: white; color: inherit; border-radius: 8px; padding: 7px 12px; }
 button:hover { background: #edf1eb; }
-button:focus-visible, input:focus-visible, [role=button]:focus-visible { outline: 3px solid #b17a09; outline-offset: 4px; }
-header { height: 122px; text-align: center; position: relative; padding: 25px 180px 10px; }
+button:focus-visible, input:focus-visible, select:focus-visible, [role=button]:focus-visible { outline: 3px solid #b17a09; outline-offset: 4px; }
+header { min-height: 168px; text-align: center; position: relative; padding: 16px 180px 38px; }
 h1 { font-size: 30px; font-weight: 550; letter-spacing: -.8px; margin: 0 0 7px; }
 h1:focus { outline: none; }
 .meta { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
@@ -68,3 +68,20 @@ code { display: block; padding-top: 10px; font-family: Consolas, monospace; over
 footer p { margin: 8px 0; }
 .fingerprint { font-size: 10px; overflow-wrap: anywhere; }
 @media (prefers-reduced-motion: no-preference) { .node rect { transition: fill .12s, stroke .12s; } }
+
+.layer-control { display: flex; justify-content: center; align-items: center; gap: 8px; margin-bottom: 12px; font-size: 12px; }
+.layer-control label { color: var(--muted); }
+select { max-width: 100%; min-width: 0; padding: 7px 8px; border: 1px solid var(--line); border-radius: 8px; background: white; color: inherit; }
+#no-formula { padding: 60px 16px; text-align: center; color: var(--muted); }
+#source { overflow-wrap: anywhere; }
+@media (max-width: 900px) {
+  header { padding: 16px var(--gutter) 38px; }
+  #jump-form { position: static; justify-content: center; margin-top: 12px; }
+  #jump-status { position: static; margin-top: 6px; }
+  .evaluation { grid-template-columns: minmax(0, 1fr) auto; gap: 16px; }
+  .result { border-right: 0; }
+  .inspector { grid-column: 1 / -1; grid-row: 2; }
+  #output { font-size: 24px; }
+  .coactivation-head { flex-wrap: wrap; gap: 8px; }
+  footer { flex-direction: column; gap: 12px; }
+}
