@@ -214,7 +214,6 @@ def LevelSearch(neurons: torch.Tensor,concept_atoms: list[sympy.Expr], concept_v
             )
 
         results.append((best_formula, best_score))
-        return results  # Temporary stopper while checking the first neuron's search.
 
 
     return results
