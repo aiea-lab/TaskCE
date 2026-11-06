@@ -96,3 +96,7 @@ The current configuration primarily studies:
 - **Claim verification:** VitaminC
 
 The evaluation and task-separation components also contain support for the Logical Fallacy dataset.
+
+## Browse formula trees offline
+
+See the [formula tree viewer guide](theoretical/compositional_explanations/formula_ast/README.md) to build, browse, and verify offline viewers.
