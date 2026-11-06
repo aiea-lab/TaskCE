@@ -18,29 +18,24 @@ class SearchResult:
     best_score: float
 
 
-def batched_iou(neuron: torch.Tensor, vectors: torch.Tensor) -> torch.Tensor:
-    """Score contiguous int32 [word] against [row, word]; return float32 [row]."""
-    row_count, word_count = vectors.shape
-    scores = torch.empty(row_count, dtype=torch.float32, device=vectors.device)
-    # tl.arange requires a power-of-two logical width covering the row.
-    # Extra positions load zero through valid_words; no stored words are appended.
-    _batched_iou_kernel[(row_count,)](
-        neuron,
-        vectors,
-        scores,
-        word_count,
-        BLOCK_WIDTH=triton.next_power_of_2(word_count),
-        num_warps=4,
-    )
-    return scores
-
-
-
 def calculate_ious(neuron, vectors, batch_size):
     output = []
     for i in range(0, len(vectors), batch_size):
         batch = vectors[i:i+batch_size]
-        iou = batched_iou(neuron, batch)
+
+        row_count, word_count = batch.shape
+        iou = torch.empty(row_count, dtype=torch.float32, device=batch.device)
+        # tl.arange requires a power-of-two logical width covering the row.
+        # Extra positions load zero through valid_words; no stored words are appended.
+        _batched_iou_kernel[(row_count,)](
+            neuron,
+            batch,
+            iou,
+            word_count,
+            BLOCK_WIDTH=triton.next_power_of_2(word_count),
+            num_warps=4,
+        )
+        
         output.append(iou)
     return torch.cat(output).detach()
 
@@ -154,21 +149,25 @@ def LevelSearch(neurons: torch.Tensor,concept_atoms: list[sympy.Expr], concept_v
                 original_row_indices = torch.arange(generated_count, device=neuron.device)
 
                 # magic trick from codex to not manually make a reverse mapping array
-                unique_to_original = torch.full(
-                    (unique_vectors.shape[0],), generated_count,
+                unique_to_original = torch.empty(
+                    (unique_vectors.shape[0],),
                     dtype=torch.long, device=neuron.device,
                 )
                 unique_to_original.scatter_reduce_(
-                    0, inverse_indices, original_row_indices, reduce="amin"
+                    0, inverse_indices, original_row_indices, reduce="amin", include_self=False
                 )
 
                 scored_ious = calculate_ious(neuron, unique_vectors, config.iou_calculation_batch_size)
                 # Start in generation order so stable score sorting preserves the old tie rule.
-                generation_order = torch.argsort(unique_to_original)
-                score_order = torch.argsort(scored_ious[generation_order], descending=True, stable=True)
-                ranked_unique_indices = generation_order[score_order]
-                selected_unique_indices = ranked_unique_indices[:beam_size]
-                selected_original_indices = unique_to_original[selected_unique_indices]
+                generation_order = torch.argsort(unique_to_original) # order by index 
+                score_order = torch.argsort(scored_ious[generation_order], descending=True, stable=True) # order by IoU after indexed -> repeated IoUs have ascending indexes
+                # build the final ordering for the vectors/ious (sorted iou descending, original index ascending for ties)
+                selected_unique_indices = ( generation_order[score_order] )[:beam_size] # describes how the current set IoUs and vectors should be ordered
+
+                next_beam_vectors = unique_vectors[selected_unique_indices]
+                next_beam_ious = scored_ious[selected_unique_indices]
+
+                selected_original_indices = unique_to_original[selected_unique_indices] # maps back to the original indexes for later construction.
                 (
                     selected_parent_rows,
                     selected_concept_indices,
@@ -178,8 +177,6 @@ def LevelSearch(neurons: torch.Tensor,concept_atoms: list[sympy.Expr], concept_v
                 source_parent_indices = torch.tensor(parent_indices, device=neuron.device)
                 selected_parent_indices = source_parent_indices[selected_parent_rows]
 
-                next_beam_vectors = unique_vectors[selected_unique_indices]
-                next_beam_ious = scored_ious[selected_unique_indices]
                 # Transfer only the selected [parent, concept, operation] records to the CPU.
                 selected_compositions = torch.stack(
                     (selected_parent_indices, selected_concept_indices, selected_operation_indices),
