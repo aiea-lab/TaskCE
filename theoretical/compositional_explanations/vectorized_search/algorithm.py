@@ -1,4 +1,6 @@
+from collections.abc import Callable
 from dataclasses import dataclass
+from operator import and_, or_
 
 from sympy import Symbol
 
@@ -83,6 +85,78 @@ class SearchConfig:
     max_iterations: int = 10
     iou_calculation_batch_size: int = 16384
 
+
+@dataclass(frozen=True)
+class Beam:
+    """A score-ordered snapshot with one formula, packed mask, and score per row."""
+
+    formulas: list[sympy.Expr]
+    vectors: torch.Tensor
+    scores: torch.Tensor
+
+
+@dataclass(frozen=True)
+class Operation:
+    mask: Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
+    formula: Callable[[sympy.Expr, sympy.Expr], sympy.Expr]
+
+
+OPERATIONS = (
+    Operation(and_, And),
+    Operation(or_, Or),
+    Operation(
+        lambda parent, concept: parent & ~concept,
+        lambda parent, concept: And(parent, Not(concept)),
+    ),
+)
+
+
+@dataclass(frozen=True)
+class Composition:
+    parent: sympy.Expr
+    concept: sympy.Expr
+    operation: Operation
+
+    @classmethod
+    def from_row(
+        cls, candidate_id: int, parent_formulas: list[sympy.Expr], concept_formulas: list[sympy.Expr]
+    ) -> "Composition":
+        operand_pair, operation = divmod(candidate_id, len(OPERATIONS))
+        parent, concept = divmod(operand_pair, len(concept_formulas))
+        return cls(
+            parent_formulas[parent], concept_formulas[concept], OPERATIONS[operation]
+        )
+
+    def formula(self) -> sympy.Expr:
+        return self.operation.formula(self.parent, self.concept)
+
+
+def _first_rows_per_mask(candidate_masks: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    unique_masks, mask_ids = torch.unique(
+        candidate_masks, dim=0, return_inverse=True
+    )
+    first_rows = torch.empty(
+        (unique_masks.shape[0],), dtype=torch.long, device=candidate_masks.device
+    )
+    first_rows.scatter_reduce_(
+        0,
+        mask_ids,
+        torch.arange(candidate_masks.shape[0], device=candidate_masks.device),
+        reduce="amin",
+        include_self=False,
+    )
+    return unique_masks, first_rows
+
+
+def _select_candidates(candidate_ids, scores, beam_size):
+    generation_order = torch.argsort(candidate_ids)
+    score_order = torch.argsort(
+        scores[generation_order], descending=True, stable=True
+    )
+    retained = generation_order[score_order[:beam_size]]
+    return candidate_ids[retained], scores[retained]
+
+
 def LevelSearch(neurons: torch.Tensor,concept_atoms: list[sympy.Expr], concept_vectors: torch.Tensor, config=SearchConfig()):
     """Search packed [word, neuron] activations using [concept, word] masks."""
     results = []
@@ -101,26 +175,28 @@ def LevelSearch(neurons: torch.Tensor,concept_atoms: list[sympy.Expr], concept_v
         print("Pre/Post zero filtering:", len(concept_atoms), len(nonzero_formulas))
 
         beam_size = config.beam_size
-        beam_vectors = nonzero_vectors[:beam_size].clone()
-        beam_formulas = nonzero_formulas[:beam_size]
-        beam_ious = ious[nonzero_indices[:beam_size]]
+        beam = Beam(
+            nonzero_formulas[:beam_size],
+            nonzero_vectors[:beam_size].clone(),
+            ious[nonzero_indices[:beam_size]],
+        )
 
         best_formula = ""
         best_score = 0
 
         iterations = 0
-        while beam_formulas and iterations < config.max_iterations:
-            formula_lengths = [formula.count(Symbol) for formula in beam_formulas]
+        while beam.formulas and iterations < config.max_iterations:
+            formula_lengths = [formula.count(Symbol) for formula in beam.formulas]
             print(
                 f"neuron={activation_index} iteration={iterations + 1} "
-                f"beam={len(beam_formulas)} "
+                f"beam={len(beam.formulas)} "
                 f"formula_length={min(formula_lengths)}..{max(formula_lengths)}",
                 flush=True,
             )
             # The beam is score ordered, so its first row is the current best.
-            current_score = beam_ious[0].item()
+            current_score = beam.scores[0].item()
             if current_score > best_score:
-                best_formula = logic_str(beam_formulas[0])
+                best_formula = logic_str(beam.formulas[0])
                 best_score = current_score
 
             parent_indices = [
@@ -129,83 +205,36 @@ def LevelSearch(neurons: torch.Tensor,concept_atoms: list[sympy.Expr], concept_v
             ]
             generated_count = 0
             if parent_indices:
-                parent_vectors = beam_vectors[parent_indices].unsqueeze(1)
+                parent_formulas = [beam.formulas[index] for index in parent_indices]
+                parent_vectors = beam.vectors[parent_indices].unsqueeze(1)
                 expansion_concepts = nonzero_vectors.unsqueeze(0)
-                # [parent, concept, operation, word]; operations are AND, OR, AND NOT.
-                compositions = torch.stack(
-                    (
-                        parent_vectors & expansion_concepts,
-                        parent_vectors | expansion_concepts,
-                        parent_vectors & ~expansion_concepts,
-                    ),
+                candidate_masks = torch.stack(
+                    [op.mask(parent_vectors, expansion_concepts) for op in OPERATIONS],
                     dim=2,
+                ).flatten(0, 2)
+                generated_count = candidate_masks.shape[0]
+                unique_masks, first_rows = _first_rows_per_mask(candidate_masks)
+                scores = calculate_ious(
+                    neuron, unique_masks, config.iou_calculation_batch_size
                 )
-                neighbor_vectors = compositions.flatten(0, 2)
-                generated_count = neighbor_vectors.shape[0]
-                unique_vectors, inverse_indices = torch.unique(
-                    neighbor_vectors, dim=0, return_inverse=True
+                selected_ids, selected_scores = _select_candidates(
+                    first_rows, scores, beam_size
                 )
-                # For each unique mask, keep the first original composition row.
-                original_row_indices = torch.arange(generated_count, device=neuron.device)
-
-                # magic trick from codex to not manually make a reverse mapping array
-                unique_to_original = torch.empty(
-                    (unique_vectors.shape[0],),
-                    dtype=torch.long, device=neuron.device,
+                survivors = (
+                    Composition.from_row(candidate_id, parent_formulas, nonzero_formulas)
+                    for candidate_id in selected_ids.cpu().tolist()
                 )
-                unique_to_original.scatter_reduce_(
-                    0, inverse_indices, original_row_indices, reduce="amin", include_self=False
+                beam = Beam(
+                    [candidate.formula() for candidate in survivors],
+                    candidate_masks[selected_ids],
+                    selected_scores,
                 )
-
-                scored_ious = calculate_ious(neuron, unique_vectors, config.iou_calculation_batch_size)
-                # Start in generation order so stable score sorting preserves the old tie rule.
-                generation_order = torch.argsort(unique_to_original) # order by index 
-                score_order = torch.argsort(scored_ious[generation_order], descending=True, stable=True) # order by IoU after indexed -> repeated IoUs have ascending indexes
-                # build the final ordering for the vectors/ious (sorted iou descending, original index ascending for ties)
-                selected_unique_indices = ( generation_order[score_order] )[:beam_size] # describes how the current set IoUs and vectors should be ordered
-
-                next_beam_vectors = unique_vectors[selected_unique_indices]
-                next_beam_ious = scored_ious[selected_unique_indices]
-
-                selected_original_indices = unique_to_original[selected_unique_indices] # maps back to the original indexes for later construction.
-                (
-                    selected_parent_rows,
-                    selected_concept_indices,
-                    selected_operation_indices,
-                ) = torch.unravel_index(selected_original_indices, compositions.shape[:3])
-                # Parent coordinates index the eligible subset; recover source beam rows.
-                source_parent_indices = torch.tensor(parent_indices, device=neuron.device)
-                selected_parent_indices = source_parent_indices[selected_parent_rows]
-
-                # Transfer only the selected [parent, concept, operation] records to the CPU.
-                selected_compositions = torch.stack(
-                    (selected_parent_indices, selected_concept_indices, selected_operation_indices),
-                    dim=1,
-                ).cpu().tolist()
-                next_beam_formulas = []
-                for parent, concept, operation in selected_compositions:
-                    parent_formula = beam_formulas[parent]
-                    concept_formula = nonzero_formulas[concept]
-                    if operation == 0:
-                        formula = And(parent_formula, concept_formula)
-                    elif operation == 1:
-                        formula = Or(parent_formula, concept_formula)
-                    else:
-                        formula = And(parent_formula, Not(concept_formula))
-                    next_beam_formulas.append(formula)
-
-                # All source formulas have been read; replace the aligned beam together.
-                beam_vectors = next_beam_vectors
-                beam_ious = next_beam_ious
-                beam_formulas = next_beam_formulas
             else:
-                beam_vectors = beam_vectors[:0]
-                beam_ious = beam_ious[:0]
-                beam_formulas = []
+                beam = Beam([], beam.vectors[:0], beam.scores[:0])
             iterations += 1
             print(
                 f"neuron={activation_index} iteration={iterations} "
-                f"generated={generated_count} retained={len(beam_formulas)} "
+                f"generated={generated_count} retained={len(beam.formulas)} "
                 f"best_score={best_score:.6f} best_formula={best_formula}",
                 flush=True,
             )
