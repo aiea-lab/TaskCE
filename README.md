@@ -113,6 +113,12 @@ The [evaluation code](theoretical/evaluation/) compares base and LoRA-adapted mo
 
 ## Current study
 
+The [joint-search runner](experiments/joint-search/run.py) and [cross-layer recurrence analysis](experiments/cross-layer-recurrence/index_subformulas.py) have a frozen reference dataset on the Nautilus claim `ggong1-dev-main`. Under the claim's mount point, open `TaskCE/baselines/57a1e74/`. The [artifact manifest](experiments/artifacts.json) lists paths relative to that directory, byte counts, and SHA-256 hashes.
+
+Open `experiments/joint-search/results/joint-search.html` or `experiments/cross-layer-recurrence/results/cross-layer-summary.html` inside the archive to browse the results offline. Preserve the relative directory layout when copying the reports so their navigation links work. The joint runner's original checkpoint-compatible source is under `historical-source/33a4034/`.
+
+For scripts that default to an adjacent `results/` folder, copy the corresponding archived results directory into the same relative location in a checkout before running. The artifact manifest covers retained outputs and reference files. Fresh GPU fitting also requires the original SNLI features and activation captures.
+
 The current configuration primarily studies:
 
 - **Model:** `LiquidAI/LFM2.5-1.2B-Thinking`

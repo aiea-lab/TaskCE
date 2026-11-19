@@ -1,0 +1,187 @@
+{
+  "schema_version": 1,
+  "experiment_id": "joint-search-10k-v1",
+  "question": "How does a formula searched from measured joint firing change with length, and how does it compare qualitatively with the complete AND of its fixed parent formulas?",
+  "dataset": {
+    "name": "stanfordnlp/snli",
+    "split": "validation",
+    "example_scope": "all",
+    "example_count": 10000,
+    "order": "Original capture row order. No resampling or held-out partition.",
+    "alignment_evidence": "Parent search input hashes and capture replay. Raw activation tensors do not contain row identifiers."
+  },
+  "layer": "layer.8",
+  "backend": {
+    "name": "vectorized_search_2a",
+    "commit": "6f2503fe78a05197943c7349d065224dd84648b0",
+    "module_hashes": {
+      "__init__.py": "31940eb8d8fd563544b6a10603e77306e981077c23fe18aa92f40f527a34eead",
+      "algorithm.py": "b6625658a1268ca07f96da6734da980eb43cfe43b39c38462fa09f52382d9683",
+      "formula.py": "14d24e6ccefe62914a7d4462362caae99a698ba929be03d7a42303ac4b884f7b"
+    }
+  },
+  "inputs": {
+    "features_file": "features.npz",
+    "activation_file": "layer.8.npz",
+    "features_sha256": "276095165cc8b606046aff0dfd18d1f43e36a11d9f635fbffff3ad2867b3f5d5",
+    "activation_sha256": "e1b526e821bc653f7866a0fb49e0477a0a63a22b5d3610c6824044b1c8fb2f6c",
+    "parent_csv_sha256": "91ad23f5e21f52ad70ec69b15eae57dc4cb5480c7762d6b37da30ea8d175444a",
+    "parent_manifest_sha256": "c7d3ec00762461abb0f5bf4b8cb03950a26131946864fdab7f54667e1f98207c"
+  },
+  "parent_search": {
+    "beam": 40,
+    "maximum_formula_length": 48,
+    "max_iterations": 48,
+    "quantile": 0.945,
+    "seed": 20261111,
+    "example_count": 10000,
+    "example_scope": "all"
+  },
+  "search": {
+    "beam": 40,
+    "max_iterations": 128,
+    "quantile": 0.945,
+    "seed": 20261111,
+    "device": "cuda",
+    "target": "AND of the two measured activation columns after strict > thresholding over all 10000 examples",
+    "length_definition": "SymPy expression.count(Symbol), after automatic construction normalization"
+  },
+  "selection": {
+    "rule": "Select new layer-8 parents with an exact shared compound subtree before inspecting joint-search results. Use two longest five-atom shared compounds and one four-atom OR compound from a different expression family. Pairs have distinct neurons and nonzero measured joint support.",
+    "excluded_old_pairs": [
+      [
+        467,
+        1052
+      ],
+      [
+        471,
+        598
+      ],
+      [
+        25,
+        27
+      ],
+      [
+        802,
+        869
+      ]
+    ],
+    "exclusion_reason": "No exact shared compound subtree in their new parent formulas."
+  },
+  "pairs": [
+    {
+      "id": "758-1529",
+      "neuron_ids": [
+        758,
+        1529
+      ],
+      "parent_formulas": [
+        "((NOT premise:car) AND (premise:olympic OR ((NOT premise:basketball) AND (NOT premise:grass) AND (hypothesis:elephant OR premise:types OR ((NOT premise:hat) AND (hypothesis:chases OR hypothesis:cow OR hypothesis:gun OR hypothesis:neck OR premise:blouse OR premise:sides OR ((NOT premise:arms) AND (NOT premise:holds) AND (hypothesis:heads OR hypothesis:kisses OR hypothesis:single OR hypothesis:slacks OR ((NOT premise:lady) AND (hypothesis:bicyclists OR hypothesis:dry OR hypothesis:reads OR hypothesis:sing OR premise:soldiers OR ((NOT premise:child) AND (NOT premise:children) AND (hypothesis:sandwiches OR premise:police OR ((NOT premise:girl) AND (hypothesis:bottle OR hypothesis:flip OR hypothesis:nun OR hypothesis:tank OR ((NOT premise:eating) AND (hypothesis:bowl OR hypothesis:head OR hypothesis:pink OR hypothesis:says OR premise:great OR ((NOT premise:female) AND (hypothesis:eating OR hypothesis:hands OR ((NOT premise:women) AND (hypothesis:cat OR ((NOT premise:woman) AND (hypothesis:woman OR hypothesis:women))))))))))))))))))))))",
+        "(hypothesis:buddhist OR hypothesis:carrot OR hypothesis:cello OR hypothesis:crouches OR hypothesis:mud OR hypothesis:rollerblading OR hypothesis:silver OR ((NOT premise:outdoor) AND (NOT premise:watches) AND (premise:walmart OR ((NOT premise:holds) AND (hypothesis:cart OR ((NOT premise:high) AND (NOT premise:old) AND (premise:backpacks OR ((NOT premise:colored) AND (premise:case OR ((NOT hypothesis:boy) AND (NOT premise:girl) AND (hypothesis:cows OR hypothesis:floating OR hypothesis:scouts OR hypothesis:signs OR hypothesis:snowman OR hypothesis:unicycle OR ((NOT premise:short) AND (hypothesis:buys OR hypothesis:present OR premise:stair OR ((NOT premise:dress) AND (hypothesis:cake OR hypothesis:dives OR hypothesis:gymnasium OR hypothesis:juggling OR hypothesis:mud OR hypothesis:paddle OR hypothesis:planting OR hypothesis:sheep OR hypothesis:summer OR premise:tray OR ((NOT premise:female) AND (NOT premise:lady) AND (hypothesis:purse OR ((NOT premise:women) AND (hypothesis:cat OR ((NOT premise:woman) AND (hypothesis:woman OR hypothesis:women)))))))))))))))))))))"
+      ],
+      "parent_lengths": [
+        48,
+        48
+      ],
+      "thresholds": [
+        0.0037841796875,
+        0.007937908172607422
+      ],
+      "shared_branch": "((((NOT premise:woman) AND (hypothesis:woman OR hypothesis:women)) OR hypothesis:cat) AND (NOT premise:women))",
+      "conjunction": "(((NOT premise:car) AND (premise:olympic OR ((NOT premise:basketball) AND (NOT premise:grass) AND (hypothesis:elephant OR premise:types OR ((NOT premise:hat) AND (hypothesis:chases OR hypothesis:cow OR hypothesis:gun OR hypothesis:neck OR premise:blouse OR premise:sides OR ((NOT premise:arms) AND (NOT premise:holds) AND (hypothesis:heads OR hypothesis:kisses OR hypothesis:single OR hypothesis:slacks OR ((NOT premise:lady) AND (hypothesis:bicyclists OR hypothesis:dry OR hypothesis:reads OR hypothesis:sing OR premise:soldiers OR ((NOT premise:child) AND (NOT premise:children) AND (hypothesis:sandwiches OR premise:police OR ((NOT premise:girl) AND (hypothesis:bottle OR hypothesis:flip OR hypothesis:nun OR hypothesis:tank OR ((NOT premise:eating) AND (hypothesis:bowl OR hypothesis:head OR hypothesis:pink OR hypothesis:says OR premise:great OR ((NOT premise:female) AND (hypothesis:eating OR hypothesis:hands OR ((NOT premise:women) AND (hypothesis:cat OR ((NOT premise:woman) AND (hypothesis:woman OR hypothesis:women)))))))))))))))))))))) AND (hypothesis:buddhist OR hypothesis:carrot OR hypothesis:cello OR hypothesis:crouches OR hypothesis:mud OR hypothesis:rollerblading OR hypothesis:silver OR ((NOT premise:outdoor) AND (NOT premise:watches) AND (premise:walmart OR ((NOT premise:holds) AND (hypothesis:cart OR ((NOT premise:high) AND (NOT premise:old) AND (premise:backpacks OR ((NOT premise:colored) AND (premise:case OR ((NOT hypothesis:boy) AND (NOT premise:girl) AND (hypothesis:cows OR hypothesis:floating OR hypothesis:scouts OR hypothesis:signs OR hypothesis:snowman OR hypothesis:unicycle OR ((NOT premise:short) AND (hypothesis:buys OR hypothesis:present OR premise:stair OR ((NOT premise:dress) AND (hypothesis:cake OR hypothesis:dives OR hypothesis:gymnasium OR hypothesis:juggling OR hypothesis:mud OR hypothesis:paddle OR hypothesis:planting OR hypothesis:sheep OR hypothesis:summer OR premise:tray OR ((NOT premise:female) AND (NOT premise:lady) AND (hypothesis:purse OR ((NOT premise:women) AND (hypothesis:cat OR ((NOT premise:woman) AND (hypothesis:woman OR hypothesis:women))))))))))))))))))))))",
+      "conjunction_length": 96,
+      "expected_joint_support": 170,
+      "sweep_lengths": [
+        1,
+        3,
+        5,
+        12,
+        24,
+        48,
+        72,
+        96
+      ]
+    },
+    {
+      "id": "340-386",
+      "neuron_ids": [
+        340,
+        386
+      ],
+      "parent_formulas": [
+        "((NOT hypothesis:black) AND (NOT premise:brown) AND (NOT premise:camera) AND (NOT premise:carrying) AND (NOT premise:gathered) AND (NOT premise:haired) AND (NOT premise:long) AND (premise:guns OR ((NOT hypothesis:couple) AND (NOT hypothesis:sleeping) AND (NOT hypothesis:waiting) AND (NOT hypothesis:watching) AND (NOT premise:balloons) AND (NOT premise:body) AND (NOT premise:city) AND (NOT premise:dress) AND (NOT premise:horse) AND (NOT premise:jeans) AND (NOT premise:looks) AND (NOT premise:party) AND (NOT premise:person) AND (NOT premise:sun) AND (premise:television OR ((NOT premise:look) AND (hypothesis:persons OR ((NOT premise:number) AND (hypothesis:seen OR ((NOT hypothesis:girl) AND (NOT hypothesis:women) AND (premise:papers OR ((NOT premise:jacket) AND (hypothesis:present OR hypothesis:snow OR ((NOT premise:looking) AND (premise:kayaking OR ((NOT hypothesis:man) AND (NOT premise:background) AND (NOT premise:dressed) AND (NOT premise:shirt) AND (hypothesis:animals OR hypothesis:humans OR hypothesis:outside OR hypothesis:wet OR ((NOT premise:people) AND (NOT premise:person) AND (hypothesis:human OR hypothesis:people OR hypothesis:person))))))))))))))))))",
+        "((NOT premise:colored) AND (premise:conversing OR ((NOT premise:match) AND (hypothesis:arts OR ((NOT hypothesis:line) AND (NOT hypothesis:red) AND (NOT hypothesis:women) AND (NOT premise:background) AND (NOT premise:car) AND (NOT premise:picture) AND (NOT premise:waves) AND (hypothesis:produce OR hypothesis:skateboards OR premise:hydrant OR ((NOT hypothesis:inside) AND (NOT hypothesis:running) AND (NOT hypothesis:water) AND (NOT premise:guy) AND (NOT premise:orange) AND (NOT premise:umbrella) AND (hypothesis:inflatable OR hypothesis:leash OR hypothesis:stall OR premise:warehouse OR ((NOT premise:taking) AND (hypothesis:different OR hypothesis:image OR premise:tea OR ((NOT premise:football) AND (NOT premise:waiting) AND (premise:chalkboard OR ((NOT premise:horse) AND (NOT premise:running) AND (NOT premise:table) AND (hypothesis:examining OR ((NOT premise:beach) AND (premise:trunks OR ((NOT premise:wall) AND (hypothesis:dance OR hypothesis:sad OR premise:attempting OR premise:country OR premise:curb OR ((NOT premise:people) AND (NOT premise:person) AND (hypothesis:human OR hypothesis:people OR hypothesis:person))))))))))))))))))))"
+      ],
+      "parent_lengths": [
+        48,
+        48
+      ],
+      "thresholds": [
+        0.001495361328125,
+        0.01324462890625
+      ],
+      "shared_branch": "((NOT premise:people) AND (NOT premise:person) AND (hypothesis:human OR hypothesis:people OR hypothesis:person))",
+      "conjunction": "(((NOT hypothesis:black) AND (NOT premise:brown) AND (NOT premise:camera) AND (NOT premise:carrying) AND (NOT premise:gathered) AND (NOT premise:haired) AND (NOT premise:long) AND (premise:guns OR ((NOT hypothesis:couple) AND (NOT hypothesis:sleeping) AND (NOT hypothesis:waiting) AND (NOT hypothesis:watching) AND (NOT premise:balloons) AND (NOT premise:body) AND (NOT premise:city) AND (NOT premise:dress) AND (NOT premise:horse) AND (NOT premise:jeans) AND (NOT premise:looks) AND (NOT premise:party) AND (NOT premise:person) AND (NOT premise:sun) AND (premise:television OR ((NOT premise:look) AND (hypothesis:persons OR ((NOT premise:number) AND (hypothesis:seen OR ((NOT hypothesis:girl) AND (NOT hypothesis:women) AND (premise:papers OR ((NOT premise:jacket) AND (hypothesis:present OR hypothesis:snow OR ((NOT premise:looking) AND (premise:kayaking OR ((NOT hypothesis:man) AND (NOT premise:background) AND (NOT premise:dressed) AND (NOT premise:shirt) AND (hypothesis:animals OR hypothesis:humans OR hypothesis:outside OR hypothesis:wet OR ((NOT premise:people) AND (NOT premise:person) AND (hypothesis:human OR hypothesis:people OR hypothesis:person)))))))))))))))))) AND ((NOT premise:colored) AND (premise:conversing OR ((NOT premise:match) AND (hypothesis:arts OR ((NOT hypothesis:line) AND (NOT hypothesis:red) AND (NOT hypothesis:women) AND (NOT premise:background) AND (NOT premise:car) AND (NOT premise:picture) AND (NOT premise:waves) AND (hypothesis:produce OR hypothesis:skateboards OR premise:hydrant OR ((NOT hypothesis:inside) AND (NOT hypothesis:running) AND (NOT hypothesis:water) AND (NOT premise:guy) AND (NOT premise:orange) AND (NOT premise:umbrella) AND (hypothesis:inflatable OR hypothesis:leash OR hypothesis:stall OR premise:warehouse OR ((NOT premise:taking) AND (hypothesis:different OR hypothesis:image OR premise:tea OR ((NOT premise:football) AND (NOT premise:waiting) AND (premise:chalkboard OR ((NOT premise:horse) AND (NOT premise:running) AND (NOT premise:table) AND (hypothesis:examining OR ((NOT premise:beach) AND (premise:trunks OR ((NOT premise:wall) AND (hypothesis:dance OR hypothesis:sad OR premise:attempting OR premise:country OR premise:curb OR ((NOT premise:people) AND (NOT premise:person) AND (hypothesis:human OR hypothesis:people OR hypothesis:person)))))))))))))))))))))",
+      "conjunction_length": 96,
+      "expected_joint_support": 98,
+      "sweep_lengths": [
+        1,
+        3,
+        5,
+        12,
+        24,
+        48,
+        72,
+        96
+      ]
+    },
+    {
+      "id": "319-817",
+      "neuron_ids": [
+        319,
+        817
+      ],
+      "parent_formulas": [
+        "(premise:collar OR ((NOT hypothesis:dog) AND (NOT hypothesis:park) AND (hypothesis:amusement OR hypothesis:photographed OR premise:braids OR ((NOT hypothesis:dogs) AND (premise:attractive OR premise:batsman OR premise:college OR premise:electronics OR premise:ping OR ((NOT hypothesis:kids) AND (NOT hypothesis:picture) AND (NOT premise:crowd) AND (hypothesis:puts OR premise:sink OR ((NOT hypothesis:men) AND (premise:army OR premise:pillow OR premise:security OR ((NOT premise:holds) AND (NOT premise:running) AND (hypothesis:competing OR hypothesis:talks OR premise:speaks OR ((NOT premise:jacket) AND (NOT premise:sidewalk) AND (hypothesis:image OR premise:legs OR ((NOT premise:table) AND (hypothesis:newly OR hypothesis:tub OR premise:groups OR ((NOT premise:wall) AND (hypothesis:vacation OR premise:navy OR ((NOT hypothesis:man) AND (premise:jersey OR premise:multicolored OR ((NOT hypothesis:tall) AND (hypothesis:humans OR premise:haired OR ((NOT premise:person) AND (hypothesis:human OR hypothesis:outdoors OR hypothesis:outside OR hypothesis:person)))))))))))))))))))))))",
+        "((NOT hypothesis:making) AND (NOT premise:talking) AND (premise:cheerleading OR premise:cups OR premise:ft OR premise:space OR premise:swims OR premise:wizard OR ((NOT premise:suits) AND (hypothesis:traveling OR ((NOT premise:taking) AND (NOT premise:truck) AND (premise:bananas OR premise:calf OR ((NOT hypothesis:near) AND (NOT hypothesis:park) AND (premise:greyhound OR ((NOT premise:house) AND (NOT premise:old) AND (NOT premise:stands) AND (hypothesis:liquid OR hypothesis:racket OR hypothesis:target OR hypothesis:tool OR ((NOT premise:table) AND (hypothesis:arts OR hypothesis:exercising OR hypothesis:skateboarding OR ((NOT hypothesis:boy) AND (NOT hypothesis:dogs) AND (hypothesis:rides OR ((NOT hypothesis:taking) AND (hypothesis:activity OR premise:wig OR ((NOT hypothesis:holding) AND (NOT hypothesis:tall) AND (hypothesis:sports OR premise:tattoo OR ((NOT premise:person) AND (hypothesis:instrument OR hypothesis:moving OR premise:barely OR premise:closed OR ((NOT premise:outside) AND (hypothesis:human OR hypothesis:outdoors OR hypothesis:outside OR hypothesis:person))))))))))))))))))))))"
+      ],
+      "parent_lengths": [
+        48,
+        48
+      ],
+      "thresholds": [
+        0.0007745921611785889,
+        0.00640869140625
+      ],
+      "shared_branch": "(hypothesis:human OR hypothesis:outdoors OR hypothesis:outside OR hypothesis:person)",
+      "conjunction": "((premise:collar OR ((NOT hypothesis:dog) AND (NOT hypothesis:park) AND (hypothesis:amusement OR hypothesis:photographed OR premise:braids OR ((NOT hypothesis:dogs) AND (premise:attractive OR premise:batsman OR premise:college OR premise:electronics OR premise:ping OR ((NOT hypothesis:kids) AND (NOT hypothesis:picture) AND (NOT premise:crowd) AND (hypothesis:puts OR premise:sink OR ((NOT hypothesis:men) AND (premise:army OR premise:pillow OR premise:security OR ((NOT premise:holds) AND (NOT premise:running) AND (hypothesis:competing OR hypothesis:talks OR premise:speaks OR ((NOT premise:jacket) AND (NOT premise:sidewalk) AND (hypothesis:image OR premise:legs OR ((NOT premise:table) AND (hypothesis:newly OR hypothesis:tub OR premise:groups OR ((NOT premise:wall) AND (hypothesis:vacation OR premise:navy OR ((NOT hypothesis:man) AND (premise:jersey OR premise:multicolored OR ((NOT hypothesis:tall) AND (hypothesis:humans OR premise:haired OR ((NOT premise:person) AND (hypothesis:human OR hypothesis:outdoors OR hypothesis:outside OR hypothesis:person))))))))))))))))))))))) AND ((NOT hypothesis:making) AND (NOT premise:talking) AND (premise:cheerleading OR premise:cups OR premise:ft OR premise:space OR premise:swims OR premise:wizard OR ((NOT premise:suits) AND (hypothesis:traveling OR ((NOT premise:taking) AND (NOT premise:truck) AND (premise:bananas OR premise:calf OR ((NOT hypothesis:near) AND (NOT hypothesis:park) AND (premise:greyhound OR ((NOT premise:house) AND (NOT premise:old) AND (NOT premise:stands) AND (hypothesis:liquid OR hypothesis:racket OR hypothesis:target OR hypothesis:tool OR ((NOT premise:table) AND (hypothesis:arts OR hypothesis:exercising OR hypothesis:skateboarding OR ((NOT hypothesis:boy) AND (NOT hypothesis:dogs) AND (hypothesis:rides OR ((NOT hypothesis:taking) AND (hypothesis:activity OR premise:wig OR ((NOT hypothesis:holding) AND (NOT hypothesis:tall) AND (hypothesis:sports OR premise:tattoo OR ((NOT premise:person) AND (hypothesis:instrument OR hypothesis:moving OR premise:barely OR premise:closed OR ((NOT premise:outside) AND (hypothesis:human OR hypothesis:outdoors OR hypothesis:outside OR hypothesis:person)))))))))))))))))))))))",
+      "conjunction_length": 96,
+      "expected_joint_support": 130,
+      "sweep_lengths": [
+        1,
+        3,
+        5,
+        12,
+        24,
+        48,
+        72,
+        96
+      ]
+    }
+  ],
+  "outputs": {
+    "symbolic_baseline": "Evaluate each full parent formula over all examples and AND the results. Score only against measured joint firing.",
+    "sweep": "Search measured joint firing at every listed maximum length. Independently evaluate and score each returned formula against that same measured target.",
+    "qualitative_assessment": "Write a separate assessment of formula conditions and structure. Do not generate formula-to-formula agreement scores or automated conclusions."
+  },
+  "acceptance": {
+    "input_hashes_match": true,
+    "thresholds_match_parents": true,
+    "all_examples": 10000,
+    "exact_shared_branch": true,
+    "include_conjunction_length": true,
+    "iteration_cap_covers_all_lengths": true,
+    "independent_score_tolerance": 2e-06,
+    "do_not_force_recovery": true
+  }
+}

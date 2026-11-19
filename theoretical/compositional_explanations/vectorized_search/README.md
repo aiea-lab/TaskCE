@@ -1,18 +1,29 @@
-# Vectorized search plumbing
+# Vectorized search
 
-`search_all(activation_vectors, feature_vectors, device=None, config=None)` moves
-the activation matrix and shared concept masks to one device, then calls
-`LevelSearch` once. The expected shapes are `activation_vectors[examples,
-neurons]` and one boolean concept mask of shape `[examples]` per formula.
-`LevelSearch` currently loops over neurons serially and returns one
-`(best_formula, best_score)` pair per column; `search_all` adds each column's
-index as a `SearchResult`. This is plumbing for the input and output contract,
-not the GPU algorithm. The serial body is a mock awaiting the user's PyTorch /
-Triton rewrite.
-
-`legacy/` keeps the previous vectorized implementation for reference. The
-analysis caller still imports `../search/algorithm.py`; that original search
-and the separate `../search/batched_level.py` prototype are unchanged.
+```mermaid
+---
+title: "Which recipes enter the next beam?"
+---
+stateDiagram-v2
+  s0: Concept masks
+  s1: Current beam
+  s2: Search finished
+  s3: Parents below the length limit
+  s4: All candidate recipes
+  s5: First recipe for each bitmap
+  s6: Winners by score and generation order
+  s7: Formulas and masks for the next beam
+  [*] --> s0
+  s0 --> s1: seed with positive-scoring concepts
+  s1 --> s2: stop [empty beam or iteration limit]
+  s1 --> s3: visit the beam and filter parents
+  s3 --> s4: combine each parent with each concept
+  s3 --> s1: clear the beam [no eligible parent]
+  s4 --> s5: keep the earliest row for each bitmap
+  s5 --> s6: retain at most the beam width
+  s6 --> s7: decode each winning recipe
+  s7 --> s1: advance one iteration
+```
 
 To profile the existing first-neuron search, run from the repository root:
 
