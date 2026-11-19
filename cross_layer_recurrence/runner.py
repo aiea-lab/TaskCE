@@ -88,22 +88,27 @@ def run(
     opts = options or CrossLayerRecurrenceOptions()
     artifacts: dict[str, Path] = {}
     locations = opts.locations or tuple(profile.artifacts.recurrence_layers)
+    fresh_results_dir: Path | None = None
+
+    def _resolve_results_dir() -> Path:
+        if fresh_results_dir is not None:
+            return fresh_results_dir
+        if opts.results_dir is not None:
+            return opts.results_dir
+        if not profile.artifacts.recurrence_results_relpath:
+            raise ValueError(
+                f"Profile {profile.name!r} has no recurrence_results_relpath; pass --results-dir"
+            )
+        return workspace.data_root.resolve_baseline_path(
+            profile.artifacts.recurrence_results_relpath
+        )
 
     for stage in stages:
         with workspace.stage(stage):
             if stage == "index":
                 from cross_layer_recurrence import index_subformulas as index_mod
 
-                if opts.results_dir is not None:
-                    results_dir = opts.results_dir
-                else:
-                    if not profile.artifacts.recurrence_results_relpath:
-                        raise ValueError(
-                            f"Profile {profile.name!r} has no recurrence_results_relpath; pass --results-dir"
-                        )
-                    results_dir = workspace.data_root.resolve_baseline_path(
-                        profile.artifacts.recurrence_results_relpath
-                    )
+                results_dir = _resolve_results_dir()
                 formulas = index_mod.load_formulas(results_dir, locations=locations)
                 occurrences, proper_locations = index_mod.index_subformulas(formulas)
                 recurrence, summary = index_mod.summarize(
@@ -142,16 +147,7 @@ def run(
                 bundle = workspace.data_root.resolve_prepared_inputs(
                     profile, override=opts.inputs_dir
                 )
-                if opts.results_dir is not None:
-                    results_dir = opts.results_dir
-                else:
-                    if not profile.artifacts.recurrence_results_relpath:
-                        raise ValueError(
-                            f"Profile {profile.name!r} has no recurrence_results_relpath; pass --results-dir"
-                        )
-                    results_dir = workspace.data_root.resolve_baseline_path(
-                        profile.artifacts.recurrence_results_relpath
-                    )
+                results_dir = _resolve_results_dir()
                 argv: list[str] = [
                     "--csv-dir", str(results_dir / "full"),
                     "--activation-dir", str(bundle.directory),
@@ -181,6 +177,7 @@ def run(
                     device=opts.device,
                     seed_layer8=not opts.no_seed_layer8,
                 )
+                fresh_results_dir = workspace.output_dir
                 artifacts["import_json"] = workspace.output_dir / "import.json"
                 artifacts["selection_json"] = workspace.output_dir / "selection.json"
                 artifacts["full_dir"] = workspace.output_dir / "full"

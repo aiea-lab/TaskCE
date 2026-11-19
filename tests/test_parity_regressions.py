@@ -311,3 +311,143 @@ def test_full_sweep_historical_seed_explicit_and_ordinary_resume_strict(
             run_root=tmp_path / "fresh_out",
             inputs_dir=inputs_dir,
         )
+
+
+def test_combined_full_sweep_index_and_match_consume_fresh_formulas(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import gzip
+
+    from cross_layer_recurrence import index_subformulas as index_mod
+    from cross_layer_recurrence import matching as matching_mod
+    from cross_layer_recurrence.runner import CrossLayerRecurrenceOptions
+
+    data_dir = tmp_path / "data"
+    inputs_dir = data_dir / "inputs"
+    inputs_dir.mkdir(parents=True)
+    baseline_dir = tmp_path / "baselines" / "57a1e74"
+    archived_full = baseline_dir / "experiments" / "cross-layer-recurrence" / "results" / "full"
+    archived_full.mkdir(parents=True)
+
+    # Prepared inputs for 2 layers, 2 neurons, 12 examples (fit/val/test all populated).
+    rng = np.random.default_rng(11)
+    vectors = np.zeros((4, 12), dtype=bool)
+    vectors[0, :6] = True
+    vectors[1, :6] = True
+    vectors[2, 6:] = True
+    vectors[3, 6:] = True
+    names = np.array(["premise:arch_a", "hypothesis:arch_b", "premise:fresh_x", "hypothesis:fresh_y"])
+    split = np.array([0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2], dtype=np.int64)
+    np.savez(inputs_dir / "features.npz", vectors=vectors, names=names, split=split)
+    for layer in ("layer.8", "layer.9"):
+        acts = rng.standard_normal((12, 2)).astype(np.float32)
+        np.savez(inputs_dir / f"{layer}.npz", activation=acts)
+
+    def _write_layer_csv(directory: Path, layer: str, formula: str) -> None:
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / f"{layer}.csv").write_text(
+            "layer,neuron,neuron_ids,target_type,status,formula,backend_fit_iou,thresholds,"
+            "fit_iou,fit_n,validation_iou,validation_n,test_iou,test_n,beam,length,min_fit_support\n"
+            f"{layer},0,[0],neuron,ok,{formula},0.5,[0.0],0.5,12,0.0,0,0.0,0,40,48,1\n"
+            f"{layer},1,[1],neuron,ok,{formula},0.5,[0.0],0.5,12,0.0,0,0.0,0,40,48,1\n",
+            encoding="utf-8",
+        )
+
+    archived_formula = "(hypothesis:arch_b AND premise:arch_a)"
+    fresh_formula = "(hypothesis:fresh_y AND premise:fresh_x)"
+    for layer in ("layer.8", "layer.9"):
+        _write_layer_csv(archived_full, layer, archived_formula)
+
+    # Bind small-fixture dimensions for index_subformulas helpers.
+    orig_load_formulas = index_mod.load_formulas
+    orig_summarize = index_mod.summarize
+    monkeypatch.setattr(
+        index_mod,
+        "load_formulas",
+        lambda results, *, locations=index_mod.LOCATIONS: orig_load_formulas(
+            results, locations=locations, examples=12, neurons=2
+        ),
+    )
+    monkeypatch.setattr(
+        index_mod,
+        "summarize",
+        lambda occ, prop, *, locations=index_mod.LOCATIONS: orig_summarize(
+            occ, prop, locations=locations, examples=12, neurons=2
+        ),
+    )
+
+    # Stub full_sweep to write deliberately distinct fresh formulas into <run>/full.
+    def fake_run_full_sweep(data_root, profile, run_root, **kwargs):
+        fresh_full = run_root / "full"
+        for layer in ("layer.8", "layer.9"):
+            _write_layer_csv(fresh_full, layer, fresh_formula)
+        (run_root / "import.json").write_text("{}\n", encoding="utf-8")
+        (run_root / "selection.json").write_text("{}\n", encoding="utf-8")
+
+    monkeypatch.setattr(full_sweep, "run_full_sweep", fake_run_full_sweep)
+
+    # Capture what matching.main reads and also let it run on the real CSVs.
+    seen_match_csv_dirs: list[Path] = []
+    orig_match_main = matching_mod.main
+
+    def spy_match_main(argv=None):
+        argv_list = list(argv or [])
+        csv_idx = argv_list.index("--csv-dir") + 1
+        seen_match_csv_dirs.append(Path(argv_list[csv_idx]))
+        return orig_match_main(argv_list)
+
+    monkeypatch.setattr(matching_mod, "main", spy_match_main)
+
+    # Build a 2-layer profile pointing at our archived baseline.
+    profiles_dir = data_dir / "profiles"
+    profiles_dir.mkdir(parents=True)
+    (profiles_dir / "snli_two_layer.toml").write_text(
+        'name = "snli_two_layer"\n'
+        'extends = "snli"\n\n'
+        "[artifacts]\n"
+        'recurrence_layers = ["layer.8", "layer.9"]\n'
+        'recurrence_later_start = "layer.9"\n'
+        'recurrence_later_end = "layer.9"\n',
+        encoding="utf-8",
+    )
+
+    # 1. Combined run: full_sweep -> index -> match must consume fresh formulas.
+    combined = execute(
+        "cross_layer_recurrence",
+        profile="snli_two_layer",
+        data_dir=data_dir,
+        baseline_dir=baseline_dir,
+        stages=("full_sweep", "index", "match"),
+        options=CrossLayerRecurrenceOptions(locations=("layer.8", "layer.9")),
+    )
+    assert combined.status == "complete"
+    with gzip.open(combined.artifacts["index"], "rt", encoding="utf-8") as stream:
+        combined_index = json.load(stream)
+    assert fresh_formula in combined_index
+    assert archived_formula not in combined_index
+
+    assert seen_match_csv_dirs[-1] == combined.output_dir / "full"
+    combined_match = json.loads(combined.artifacts["match_json"].read_text(encoding="utf-8"))
+    match_exprs = {item["expression"] for item in combined_match["expressions"]}
+    assert fresh_formula in match_exprs
+    assert archived_formula not in match_exprs
+
+    # 2. Standalone index + match must still read archived formulas.
+    standalone = execute(
+        "cross_layer_recurrence",
+        profile="snli_two_layer",
+        data_dir=data_dir,
+        baseline_dir=baseline_dir,
+        stages=("index", "match"),
+        options=CrossLayerRecurrenceOptions(locations=("layer.8", "layer.9")),
+    )
+    assert standalone.status == "complete"
+    with gzip.open(standalone.artifacts["index"], "rt", encoding="utf-8") as stream:
+        standalone_index = json.load(stream)
+    assert archived_formula in standalone_index
+    assert fresh_formula not in standalone_index
+    assert seen_match_csv_dirs[-1] == archived_full
+    standalone_match = json.loads(standalone.artifacts["match_json"].read_text(encoding="utf-8"))
+    standalone_exprs = {item["expression"] for item in standalone_match["expressions"]}
+    assert archived_formula in standalone_exprs
+    assert fresh_formula not in standalone_exprs
