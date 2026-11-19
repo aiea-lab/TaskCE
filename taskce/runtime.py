@@ -296,6 +296,12 @@ class RunWorkspace:
             if resume and run_id is None:
                 raise ValueError("resume=True requires either run_id or output_dir")
             resolved_run_id = run_id or mint_run_id()
+            if (
+                "/" in resolved_run_id
+                or "\\" in resolved_run_id
+                or resolved_run_id in {"", ".", ".."}
+            ):
+                raise ValueError(f"Invalid run_id {resolved_run_id!r}")
             target_dir = data_root.run_dir(analysis, profile.name, resolved_run_id)
 
         meta_path = target_dir / "run_meta.json"
@@ -319,6 +325,10 @@ class RunWorkspace:
                     raise ValueError(
                         f"Cannot resume {target_dir}: recorded profile_sha256 "
                         f"{prior.get('profile_sha256')!r} != {profile.profile_sha256!r}"
+                    )
+                if check_only and prior.get("status") == "complete":
+                    raise ValueError(
+                        f"Cannot resume completed run {target_dir} in --check-only mode"
                     )
                 started_utc = str(prior.get("started_utc") or started_utc)
                 for item in prior.get("stages", ()):

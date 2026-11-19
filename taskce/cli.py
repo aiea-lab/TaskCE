@@ -10,7 +10,6 @@ import json
 from pathlib import Path
 import sys
 
-from taskce.data import DataRoot
 from taskce.executor import ANALYSES, doctor, execute
 from taskce.profiles import list_builtin_profiles
 from taskce.runtime import RunId
@@ -177,12 +176,11 @@ def _cmd_list(as_json: bool) -> int:
 
 
 def _cmd_doctor(args: argparse.Namespace) -> int:
-    root = (
-        DataRoot.from_env(data_dir=args.data_dir, baseline_dir=args.baseline_dir)
-        if (args.data_dir is not None or args.baseline_dir is not None)
-        else None
+    checks = doctor(
+        profile=args.profile,
+        data_dir=args.data_dir,
+        baseline_dir=args.baseline_dir,
     )
-    checks = doctor(profile=args.profile, data_root=root)
     if args.as_json:
         print(json.dumps([asdict(item) for item in checks], indent=2))
     else:
@@ -207,15 +205,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     runner = importlib.import_module(spec.runner_module)
     options = runner.options_from_args(args)
 
-    root = (
-        DataRoot.from_env(data_dir=args.data_dir, baseline_dir=args.baseline_dir)
-        if (args.data_dir is not None or args.baseline_dir is not None)
-        else None
-    )
     result = execute(
         analysis_name,
         profile=args.profile,
-        data_root=root,
+        data_dir=args.data_dir,
+        baseline_dir=args.baseline_dir,
         options=options,
         stages=args.stages,
         run_id=RunId(args.run_id) if args.run_id else None,

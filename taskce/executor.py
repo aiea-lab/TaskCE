@@ -282,6 +282,8 @@ def execute(
     *,
     profile: Profile | str | Path = "snli",
     data_root: DataRoot | None = None,
+    data_dir: Path | None = None,
+    baseline_dir: Path | None = None,
     options: Any = None,
     stages: Sequence[str] | None = None,
     run_id: RunId | None = None,
@@ -293,7 +295,10 @@ def execute(
     canonical_name = normalize_analysis_name(str(analysis))
     spec = ANALYSES[canonical_name]
 
-    provisional_root = data_root or DataRoot.from_env()
+    provisional_root = data_root or DataRoot.from_env(
+        data_dir=data_dir,
+        baseline_dir=baseline_dir,
+    )
     loaded_profile = (
         profile
         if isinstance(profile, Profile)
@@ -306,16 +311,36 @@ def execute(
         baseline_commit = (
             loaded_profile.artifacts.baseline_commit or PINNED_BASELINE_COMMIT
         )
-        root = DataRoot.from_env(baseline_commit=baseline_commit)
+        root = DataRoot.from_env(
+            data_dir=data_dir,
+            baseline_dir=baseline_dir,
+            baseline_commit=baseline_commit,
+        )
 
     selected_stages = spec.resolve_stages(stages)
-    if check_only and not stages:
+    if check_only:
         by_name = spec.stage_map()
-        selected_stages = tuple(
-            stage_name
-            for stage_name in selected_stages
-            if by_name[stage_name].resources == ResourceFlags.NONE
-        )
+        if stages:
+            disallowed = [
+                stage_name
+                for stage_name in selected_stages
+                if by_name[stage_name].resources != ResourceFlags.NONE
+            ]
+            if disallowed:
+                raise ValueError(
+                    f"--check-only cannot run resource-requiring stage(s) for "
+                    f"{canonical_name!r}: {', '.join(disallowed)}"
+                )
+        else:
+            selected_stages = tuple(
+                stage_name
+                for stage_name in selected_stages
+                if by_name[stage_name].resources == ResourceFlags.NONE
+            )
+            if not selected_stages:
+                raise ValueError(
+                    f"Analysis {canonical_name!r} has no read-only default stages for --check-only"
+                )
 
     # Only import taskce.hf and validate HF_HOME when selected stages actually need HF.
     required = spec.required_resources(selected_stages)
@@ -359,10 +384,15 @@ def doctor(
     *,
     profile: Profile | str | Path = "snli",
     data_root: DataRoot | None = None,
+    data_dir: Path | None = None,
+    baseline_dir: Path | None = None,
 ) -> tuple[DoctorCheck, ...]:
     """Read-only environment and cryptographic preflight with zero model downloads."""
     checks: list[DoctorCheck] = []
-    provisional_root = data_root or DataRoot.from_env()
+    provisional_root = data_root or DataRoot.from_env(
+        data_dir=data_dir,
+        baseline_dir=baseline_dir,
+    )
     repo_root = provisional_root.repo_root or Path(__file__).resolve().parents[1]
 
     loaded_profile: Profile | None = None
@@ -386,8 +416,10 @@ def doctor(
         root = data_root
     elif loaded_profile is not None:
         root = DataRoot.from_env(
+            data_dir=data_dir,
+            baseline_dir=baseline_dir,
             baseline_commit=loaded_profile.artifacts.baseline_commit
-            or PINNED_BASELINE_COMMIT
+            or PINNED_BASELINE_COMMIT,
         )
     else:
         root = provisional_root
