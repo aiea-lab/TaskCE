@@ -50,8 +50,22 @@ TASKS = {
 
 def run(task_name, activation_path, *, profile=None, data_root=None):
     """Load one capture and its aligned labels, then return the PCA result."""
-    task = TASKS[task_name]
-    states = load_activation(activation_path)
+    if task_name in TASKS:
+        task = TASKS[task_name]
+    elif profile is not None:
+        task = TaskLabels(
+            profile.dataset.hf_id,
+            profile.dataset.split,
+            profile.dataset.label_column,
+            tuple(profile.dataset.labels) or None,
+        )
+    else:
+        raise KeyError(task_name)
+    states = (
+        data_root.load_activation(activation_path)
+        if data_root is not None
+        else load_activation(activation_path)
+    )
     labels = None
     if profile is not None:
         from taskce.data import DataRoot

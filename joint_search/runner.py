@@ -16,7 +16,12 @@ from typing import Any, Callable, Mapping
 from formula_search import formula_eval, syntax, verify_2a
 from formula_search.syntax import make_lexer, parse, subtrees
 from taskce.profiles import Profile
-from taskce.runtime import RunWorkspace, atomic_write_text
+from taskce.runtime import (
+    RunWorkspace,
+    atomic_write_bytes,
+    atomic_write_json,
+    atomic_write_text,
+)
 
 
 SWEEP_CSV_COLUMNS = (
@@ -48,12 +53,7 @@ def encoded(value):
 
 
 def atomic_json(path, value):
-    temporary = path.with_name(path.name + ".tmp")
-    with temporary.open("wb") as stream:
-        stream.write(encoded(value) + b"\n")
-        stream.flush()
-        os.fsync(stream.fileno())
-    temporary.replace(path)
+    atomic_write_json(path, value, canonical=True)
 
 
 def score(target, prediction):
@@ -323,10 +323,22 @@ def run(
             f"available layers: {sorted(bundle.layer_paths)}"
         )
     activation_path = bundle.layer_paths[manifest.layer]
-    parents_path = opts.parents_csv or data_root.resolve_baseline_path(
-        profile.artifacts.joint_parent_csv_relpath
-    )
+    if opts.parents_csv is not None:
+        parents_path = opts.parents_csv
+    else:
+        if not profile.artifacts.joint_parent_csv_relpath:
+            raise ValueError(
+                f"Profile {profile.name!r} has no joint_parent_csv_relpath; pass --parents"
+            )
+        parents_path = data_root.resolve_baseline_path(
+            profile.artifacts.joint_parent_csv_relpath
+        )
     output = workspace.output_dir
+
+    if opts.verify_baseline and workspace.check_only and "sweep" not in stages:
+        raise ValueError(
+            "--verify-baseline requires stage 'sweep' and cannot run with --check-only"
+        )
 
     artifacts: dict[str, Path] = {}
     validation: _Validation | None = None
@@ -353,8 +365,15 @@ def run(
         )
 
     if opts.verify_baseline:
-        baseline_dir = data_root.resolve_baseline_path(profile.artifacts.joint_baseline_results_relpath)
-        verify_against_baseline(output, baseline_dir, tolerance=manifest.tolerance)
+        if not profile.artifacts.joint_baseline_results_relpath:
+            raise ValueError(
+                f"Profile {profile.name!r} has no joint_baseline_results_relpath"
+            )
+        with workspace.stage("verify_baseline"):
+            baseline_dir = data_root.resolve_baseline_path(
+                profile.artifacts.joint_baseline_results_relpath
+            )
+            verify_against_baseline(output, baseline_dir, tolerance=manifest.tolerance)
         artifacts["reproduction_report"] = output / "reproduction_report.json"
     return artifacts
 
@@ -389,12 +408,6 @@ def _validate(manifest, contract, bundle, parents_path, output, workspace):
     )
     provenance_sha = hashlib.sha256(encoded(provenance)).hexdigest()
     identity = dict(manifest_sha256=manifest.sha256, provenance_sha256=provenance_sha)
-
-    output.mkdir(parents=True, exist_ok=True)
-    if not (output / "provenance.json").exists():
-        atomic_json(output / "provenance.json", provenance)
-        (output / "manifest.json.tmp").write_bytes(manifest.text)
-        (output / "manifest.json.tmp").replace(output / "manifest.json")
 
     configuration = json.loads(paths["parent_manifest"].read_bytes())["configuration"]
     expected = dict(
@@ -517,8 +530,7 @@ def _validate(manifest, contract, bundle, parents_path, output, workspace):
     cells.mkdir(exist_ok=True)
     if not (output / "provenance.json").exists():
         atomic_json(output / "provenance.json", provenance)
-        (output / "manifest.json.tmp").write_bytes(manifest.text)
-        (output / "manifest.json.tmp").replace(output / "manifest.json")
+        atomic_write_bytes(output / "manifest.json", manifest.text)
     if (output / "baselines.json").exists():
         require(json.loads((output / "baselines.json").read_bytes()) == baselines, "Saved baseline drift")
     else:
@@ -527,9 +539,9 @@ def _validate(manifest, contract, bundle, parents_path, output, workspace):
         with np.load(output / "masks.npz", allow_pickle=False) as saved:
             require(set(saved.files) == set(masks) and all(np.array_equal(saved[k], v) for k, v in masks.items()), "Saved masks drift")
     else:
-        with (output / "masks.npz.tmp").open("wb") as stream:
-            np.savez_compressed(stream, **masks)
-        (output / "masks.npz.tmp").replace(output / "masks.npz")
+        masks_buffer = io.BytesIO()
+        np.savez_compressed(masks_buffer, **masks)
+        atomic_write_bytes(output / "masks.npz", masks_buffer.getvalue())
     atomic_json(output / "validation.json", dict(**identity, backend_verification=verified.proof.to_manifest_dict(), all_examples=example_count,
                 threshold_comparison=">", population=f"all {manifest.dataset_name} {manifest.split} rows in capture order", validated_cells=len(completed)))
 

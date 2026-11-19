@@ -97,8 +97,8 @@ uv run taskce capture --profile snli --batch-size 32
 uv run taskce activation-analysis --profile snli --layer model.layers.8.feed_forward
 uv run taskce formula-search --profile snli --layer layer.8
 uv run taskce formula-comparison --profile snli --stage ast_viewer --csv path/to/layer.8.csv
-uv run taskce graph-analysis --profile snli --formulas path/to/snli_beam_results.csv
-uv run taskce ablation --profile snli --formulas path/to/snli_beam_results.csv
+uv run taskce graph-analysis --profile snli --formula-path path/to/snli_beam_results.csv
+uv run taskce ablation --profile snli --formula-path path/to/snli_beam_results.csv
 ```
 
 ### Add a new study profile

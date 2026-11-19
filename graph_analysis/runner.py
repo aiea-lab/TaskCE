@@ -34,7 +34,7 @@ def add_cli_arguments(parser: argparse.ArgumentParser) -> None:
         "--output-directory",
         type=Path,
         default=None,
-        help="Output directory for graphs and reports (default: TASKCE_DATA_DIR).",
+        help="Output directory for graphs and reports (default: run workspace output directory).",
     )
 
 
@@ -59,6 +59,10 @@ def run(
     data_root = workspace.data_root
     layer = opts.layer or profile.model.resolve_module_path("layer.8")
     task_name = profile.model.lora_task or profile.dataset.name
+    formula_path = opts.formula_path or (
+        data_root.data_dir / "compositional_explanations" / f"{task_name}_beam_results.csv"
+    )
+    output_directory = opts.output_directory or workspace.output_dir
     artifacts: dict[str, Path] = {}
 
     for stage in stages:
@@ -77,8 +81,8 @@ def run(
                         checkpoint_name=profile.model.checkpoint_name,
                     )
                 ),
-                formula_path=opts.formula_path,
-                output_directory=opts.output_directory,
+                formula_path=formula_path,
+                output_directory=output_directory,
             )
             for key, bundle in outputs.items():
                 for artifact_name, path in bundle.items():

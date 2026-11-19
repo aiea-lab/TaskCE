@@ -8,6 +8,7 @@ from dataclasses import dataclass
 import os
 from pathlib import Path
 from typing import Any
+import uuid
 
 from taskce.profiles import Profile
 from taskce.runtime import RunWorkspace
@@ -133,8 +134,14 @@ def _capture_variant(
             checkpoint_name=checkpoint_name,
         )
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        temp_path = output_path.with_name(f"{output_path.name}.tmp")
-        torch.save(activations, temp_path)
-        os.replace(temp_path, output_path)
+        temp_path = output_path.with_name(
+            f"{output_path.name}.tmp.{os.getpid()}.{uuid.uuid4().hex}"
+        )
+        try:
+            torch.save(activations, temp_path)
+            os.replace(temp_path, output_path)
+        finally:
+            if temp_path.exists():
+                temp_path.unlink(missing_ok=True)
         artifacts[f"capture_{layer.replace('.', '_')}"] = output_path
     return artifacts

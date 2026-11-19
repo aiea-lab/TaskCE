@@ -7,7 +7,6 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-from taskce.data import DataRoot
 from taskce.profiles import Profile
 from taskce.runtime import RunWorkspace
 
@@ -31,7 +30,7 @@ def add_cli_arguments(parser: argparse.ArgumentParser) -> None:
         "--output-directory",
         type=Path,
         default=None,
-        help="Output directory (default: TASKCE_DATA_DIR).",
+        help="Output directory (default: run workspace output directory).",
     )
     parser.add_argument(
         "--layer",
@@ -64,8 +63,10 @@ def run(
     opts = options or AblationRunnerOptions()
     data_root = workspace.data_root
     task_name = profile.model.lora_task or profile.dataset.name
-    formula_path = opts.formula_path or _default_formula_path(task_name)
-    output_directory = opts.output_directory or data_root.data_dir
+    formula_path = opts.formula_path or (
+        data_root.data_dir / "compositional_explanations" / f"{task_name}_beam_results.csv"
+    )
+    output_directory = opts.output_directory or workspace.output_dir
     layer = opts.layer or profile.model.resolve_module_path("layer.8")
 
     artifacts: dict[str, Path] = {}
@@ -102,8 +103,3 @@ def run(
         artifacts["ablation_good_vs_bad_plot"] = result.plot_paths["good_bad"]
         artifacts["ablation_combined_plot"] = result.plot_paths["combined"]
     return artifacts
-
-
-def _default_formula_path(task_name: str) -> Path:
-    root = DataRoot.from_env()
-    return root.data_dir / "compositional_explanations" / f"{task_name}_beam_results.csv"

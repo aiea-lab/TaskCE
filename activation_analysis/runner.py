@@ -104,7 +104,12 @@ def run(
                     task_name=task_name,
                     checkpoint_name=checkpoint_name,
                 )
-                result = run_separation(task_name, activation_path, profile=profile)
+                result = run_separation(
+                    task_name,
+                    activation_path,
+                    profile=profile,
+                    data_root=data_root,
+                )
                 artifacts["task_separation_json"] = _write_json(
                     workspace.output_dir / f"task_separation_{task_name}.json",
                     result,

@@ -64,9 +64,16 @@ def run(
             if stage == "index":
                 from cross_layer_recurrence import index_subformulas as index_mod
 
-                results_dir = opts.results_dir or workspace.data_root.resolve_baseline_path(
-                    profile.artifacts.recurrence_results_relpath
-                )
+                if opts.results_dir is not None:
+                    results_dir = opts.results_dir
+                else:
+                    if not profile.artifacts.recurrence_results_relpath:
+                        raise ValueError(
+                            f"Profile {profile.name!r} has no recurrence_results_relpath; pass --results-dir"
+                        )
+                    results_dir = workspace.data_root.resolve_baseline_path(
+                        profile.artifacts.recurrence_results_relpath
+                    )
                 formulas = index_mod.load_formulas(results_dir, locations=locations)
                 occurrences, proper_locations = index_mod.index_subformulas(formulas)
                 recurrence, summary = index_mod.summarize(
@@ -105,9 +112,16 @@ def run(
                 bundle = workspace.data_root.resolve_prepared_inputs(
                     profile, override=opts.inputs_dir
                 )
-                results_dir = opts.results_dir or workspace.data_root.resolve_baseline_path(
-                    profile.artifacts.recurrence_results_relpath
-                )
+                if opts.results_dir is not None:
+                    results_dir = opts.results_dir
+                else:
+                    if not profile.artifacts.recurrence_results_relpath:
+                        raise ValueError(
+                            f"Profile {profile.name!r} has no recurrence_results_relpath; pass --results-dir"
+                        )
+                    results_dir = workspace.data_root.resolve_baseline_path(
+                        profile.artifacts.recurrence_results_relpath
+                    )
                 argv: list[str] = [
                     "--csv-dir", str(results_dir / "full"),
                     "--activation-dir", str(bundle.directory),

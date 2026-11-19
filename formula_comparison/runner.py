@@ -72,10 +72,15 @@ def run(
 ) -> Mapping[str, Path]:
     """Run diff, diff_viewer, ast_viewer, and verify_ast_viewer stages."""
     opts = options or FormulaComparisonOptions()
-    layer_dir = Path(opts.layer)
+    raw_layer = Path(opts.layer)
+    layer_dir = (
+        raw_layer
+        if raw_layer.is_absolute() or raw_layer.exists()
+        else workspace.data_root.data_dir / raw_layer
+    )
     base_dir = layer_dir / "results_base"
     finetuned_dir = layer_dir / "results"
-    diff_dir = opts.diff_dir or finetuned_dir / "formula_diff"
+    diff_dir = opts.diff_dir or (workspace.output_dir / "formula_diff")
     artifacts: dict[str, Path] = {}
 
     for stage in stages:
@@ -96,14 +101,18 @@ def run(
             elif stage == "diff_viewer":
                 from formula_comparison.formula_diff.viewer import build_viewer
 
-                output_path = opts.output_path or diff_dir / "formula_diff_viewer.html"
+                output_path = opts.output_path or (
+                    workspace.output_dir / "formula_diff_viewer.html"
+                )
                 build_viewer(diff_dir, output_path)
                 artifacts["formula_diff_viewer_html"] = output_path
             elif stage == "ast_viewer":
                 from formula_comparison.formula_ast import viewer
 
                 csv_paths = opts.csv_paths or (viewer.DEFAULT_CSV,)
-                output_path = opts.output_path or Path("data/formula_ast_viewer.html")
+                output_path = opts.output_path or (
+                    workspace.output_dir / "formula_ast_viewer.html"
+                )
                 viewer.build_viewer(csv_paths, output_path)
                 artifacts["formula_ast_viewer_html"] = output_path
             elif stage == "verify_ast_viewer":
@@ -111,7 +120,9 @@ def run(
                 from formula_comparison.formula_ast.verify_viewer import verify_viewer
 
                 csv_paths = opts.csv_paths or (viewer.DEFAULT_CSV,)
-                html_path = opts.output_path or Path("data/formula_ast_viewer.html")
+                html_path = opts.output_path or (
+                    workspace.output_dir / "formula_ast_viewer.html"
+                )
                 verify_viewer(html_path, list(csv_paths))
                 artifacts["formula_ast_viewer_verified"] = html_path
             else:
