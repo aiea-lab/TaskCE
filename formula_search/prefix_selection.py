@@ -1,18 +1,14 @@
-"""Optional exact prefix selector for the pinned new_search backend.
+"""Optional exact prefix selector for the new_search backend.
 
-Assign ``new_search.algorithm.select_unique_topk = select_unique_topk`` before
-searching to opt in. No search configuration or scoring semantics change.
+Assign ``formula_search.new_search.algorithm.select_unique_topk = select_unique_topk``
+before searching to opt in. No search configuration or scoring semantics change.
 Fingerprints only filter equality checks; every matching fingerprint is checked
 against the complete packed bitmap before a candidate is excluded.
 """
 
-from pathlib import Path
-import sys
-
 import torch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'theoretical/compositional_explanations'))
-from new_search.algorithm import select_unique_topk as reference_select
+from formula_search.new_search.algorithm import select_unique_topk as reference_select
 
 
 def _fingerprints(vectors):
@@ -166,7 +162,6 @@ def verify(device, cases):
 
 if __name__ == "__main__":
     import argparse
-    from pathlib import Path
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--verify", action="store_true", required=True)

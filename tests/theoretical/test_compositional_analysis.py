@@ -9,7 +9,7 @@ pytest.importorskip("datasets")
 pytest.importorskip("peft")
 pytest.importorskip("transformers")
 
-import theoretical.compositional_explanations.analysis as analysis_module
+import formula_search.analysis as analysis_module
 
 
 class FakeDataset:

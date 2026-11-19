@@ -6,6 +6,8 @@ from pathlib import Path
 from tokenizers.trainers import WordLevelTrainer
 from transformers import AutoTokenizer, PreTrainedTokenizerFast
 
+from taskce.data import DataRoot
+
 from .tokenizer import (
     BASE_SPECIAL_TOKENS,
     SPACY_POS_TAG_TOKENS,
@@ -15,9 +17,10 @@ from .tokenizer import (
 )
 
 
-TOKENIZER_DIRECTORY = (
+_DEFAULT_TOKENIZER_DIRECTORY = (
     Path(__file__).resolve().parents[2] / "resources" / "tokenizers"
 )
+TOKENIZER_DIRECTORY = _DEFAULT_TOKENIZER_DIRECTORY
 
 
 def tokenizer_corpus(dataset, columns: Sequence[str]) -> Iterator[str]:
@@ -26,16 +29,39 @@ def tokenizer_corpus(dataset, columns: Sequence[str]) -> Iterator[str]:
         yield "\n".join(str(example[column]) for column in columns)
 
 
+def _resolve_target_path(
+    resource_name: str,
+    *,
+    cache_directory: Path | str | None,
+) -> Path:
+    bundled_path = TOKENIZER_DIRECTORY / resource_name
+    if (bundled_path / "tokenizer.json").exists():
+        return bundled_path
+
+    if cache_directory is not None:
+        return Path(cache_directory) / resource_name
+
+    # Avoid mutating the repository checkout when training new tokenizers.
+    if TOKENIZER_DIRECTORY == _DEFAULT_TOKENIZER_DIRECTORY:
+        return DataRoot.from_env().tokenizer_cache_dir(resource_name)
+
+    return bundled_path
+
+
 def get_tokenizer(
     name: str,
     dataset,
     columns: Sequence[str],
     *,
     enable_pos: bool = False,
+    cache_directory: Path | str | None = None,
 ):
-    """Load a tokenizer resource, training it once when it is absent."""
+    """Load a bundled or cached tokenizer, training into cache when absent."""
     resource_name = f"{name}_pos" if enable_pos else name
-    tokenizer_path = TOKENIZER_DIRECTORY / resource_name
+    tokenizer_path = _resolve_target_path(
+        resource_name,
+        cache_directory=cache_directory,
+    )
 
     if not (tokenizer_path / "tokenizer.json").exists():
         tokenizer = build_tokenizer(enable_pos=enable_pos)

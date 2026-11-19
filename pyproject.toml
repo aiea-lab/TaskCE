@@ -1,3 +1,7 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "taskce"
 version = "0.1.0"
@@ -27,6 +31,28 @@ dependencies = [
     "en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
     "pytest"
 ]
+
+[project.scripts]
+taskce = "taskce.cli:main"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = [
+    "taskce",
+    "capture",
+    "activation_analysis",
+    "formula_search",
+    "formula_comparison",
+    "joint_search",
+    "cross_layer_recurrence",
+    "graph_analysis",
+    "ablation",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
 [tool.uv.sources]
 nx-cugraph-cu12 = { index = "nvidia" }

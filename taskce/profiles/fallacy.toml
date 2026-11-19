@@ -1,0 +1,49 @@
+name = "fallacy"
+description = "Logical fallacy study for LiquidAI/LFM2.5-1.2B-Thinking"
+
+[model]
+model_id = "LiquidAI/LFM2.5-1.2B-Thinking"
+lora_repo = "Heroi/multitune-lora-backup"
+lora_task = "fallacy"
+layers = [
+    "model.embedding_norm",
+    "model.layers.14.feed_forward",
+    "model.layers.13.feed_forward",
+    "model.layers.12.feed_forward",
+    "model.layers.11.feed_forward",
+    "model.layers.10.feed_forward",
+    "model.layers.9.feed_forward",
+    "model.layers.8.feed_forward",
+]
+
+[model.layer_aliases]
+"layer.8" = "model.layers.8.feed_forward"
+"layer.9" = "model.layers.9.feed_forward"
+"layer.10" = "model.layers.10.feed_forward"
+"layer.11" = "model.layers.11.feed_forward"
+"layer.12" = "model.layers.12.feed_forward"
+"layer.13" = "model.layers.13.feed_forward"
+"layer.14" = "model.layers.14.feed_forward"
+"embedding_norm" = "model.embedding_norm"
+
+[dataset]
+name = "fallacy"
+hf_id = "tasksource/logical-fallacy"
+split = "dev"
+feature_columns = ["source_article"]
+label_column = "logical_fallacies"
+labels = []
+tokenizer_name = "spacy-pos-fallacy-features"
+tokenizer_uses_pos = false
+
+[search]
+alpha = 0.055
+min_acts = 500
+beam = 40
+length = 48
+max_iterations = 48
+seed = 20261111
+backend = "vectorized_search_2a"
+
+[artifacts]
+prepared_inputs_relpaths = ["fallacy/inputs", "inputs"]

@@ -1,36 +1,32 @@
-"""Run the compositional explanation analysis."""
+"""Compositional explanation helpers and optional LoRA lm_head weight attachment."""
 
+from __future__ import annotations
+
+from dataclasses import dataclass
 import gc
 import os
-import re
-from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 import torch
 from datasets import load_dataset
-from huggingface_hub import snapshot_download
 from peft import PeftModel
 from transformers import AutoModelForCausalLM
 
-from construction.tokenizer.orchestration import (
-    get_tokenizer,
-)
-from construction.vectors import (
-    construct_feature_vectors,
-)
-from postprocessing import (
-    prune_min_acts,
-    threshold,
-)
-from search.algorithm import (
-    search_all,
-)
+from formula_search.construction.tokenizer.orchestration import get_tokenizer
+from formula_search.construction.vectors import construct_feature_vectors
+from formula_search.postprocessing import prune_min_acts, threshold
+from formula_search.search.algorithm import search_all
+from taskce.data import DataRoot, load_formula_table
+from taskce.hf import HfCachePolicy, resolve_lora_checkpoint
+from taskce.profiles import Profile
+from taskce.runtime import atomic_write_text
 
 
 DEFAULT_MODEL_ID = "LiquidAI/LFM2.5-1.2B-Thinking"
 DEFAULT_LORA_REPOSITORY = "Heroi/multitune-lora-backup"
-ACTIVATION_DATA_DIRECTORY = Path(__file__).resolve().parents[2] / "data"
+ACTIVATION_DATA_DIRECTORY = DataRoot.from_env().data_dir
 DATA_DIRECTORY = Path("data")
 
 
@@ -43,41 +39,13 @@ def activation_path(
     checkpoint_name: str | None = None,
 ) -> Path:
     """Return one generated activation file."""
-    model_directory = ACTIVATION_DATA_DIRECTORY.joinpath(*model_id.split("/"))
-
-    if task_name is None:
-        # Select the base capture directory.
-        capture_directory = model_directory / "base"
-    elif checkpoint_name is not None:
-        # Select the requested task checkpoint directory.
-        capture_directory = model_directory / task_name / checkpoint_name
-    else:
-        # Select the numerically latest task checkpoint directory.
-        task_directory = model_directory / task_name
-        checkpoint_directories = []
-
-        for checkpoint_directory in task_directory.iterdir():
-            if checkpoint_directory.is_dir():
-                checkpoint_directories.append(checkpoint_directory)
-
-        capture_directory = max(
-            checkpoint_directories,
-            key=lambda checkpoint: int(
-                checkpoint.name.removeprefix("checkpoint-")
-            ),
-        )
-
-    activation_name = f"{dataset_name}_activation.pt"
-
-    exact_layer_directory = capture_directory / layer
-    if exact_layer_directory.is_dir():
-        return exact_layer_directory / activation_name
-
-    for saved_layer_directory in capture_directory.iterdir():
-        if saved_layer_directory.name.endswith(f".{layer}"):
-            return saved_layer_directory / activation_name
-
-    raise KeyError(layer)
+    return DataRoot(data_dir=ACTIVATION_DATA_DIRECTORY).activation_path(
+        model_id,
+        dataset_name,
+        layer,
+        task_name=task_name,
+        checkpoint_name=checkpoint_name,
+    )
 
 
 def result_path(task_name: str) -> Path:
@@ -141,22 +109,13 @@ TASKS = {
 
 def load_activation(path: str | Path) -> torch.Tensor:
     """Load one raw experimental activation matrix from disk."""
-    activation = torch.load(
-        Path(path),
-        map_location="cpu",
-        weights_only=True,
-    )
-    if not isinstance(activation, torch.Tensor):
-        raise TypeError("Experimental activation data must be a tensor.")
-    if activation.ndim != 2:
-        raise ValueError(
-            "Experimental activation data must have shape [examples, neurons], "
-            f"got {tuple(activation.shape)}."
-        )
-    return activation.detach().cpu().to(torch.float32)
+    return DataRoot(data_dir=ACTIVATION_DATA_DIRECTORY).load_activation(path)
 
 
-def classification_weights_from_model(model, class_token_ids):
+def classification_weights_from_model(
+    model: Any,
+    class_token_ids: dict[str, int] | Any,
+) -> torch.Tensor:
     """Select analysis-supporting class weights from a loaded model."""
     output_embeddings = model.get_output_embeddings()
     if output_embeddings is None or not hasattr(output_embeddings, "weight"):
@@ -174,24 +133,18 @@ def latest_task_checkpoint(
     task_name: str,
     *,
     token: str | bool | None,
+    checkpoint_name: str | None = None,
 ) -> Path:
-    lora_root = Path(
-        snapshot_download(
-            repo_id=lora_repository,
-            repo_type="model",
-            token=token,
-        )
+    policy = HfCachePolicy(
+        hf_home=Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface")),
+        token=token if isinstance(token, str) else None,
     )
-    task_directory = lora_root / task_name
-    checkpoints = [path for path in task_directory.iterdir() if path.is_dir()]
-    if not checkpoints:
-        raise FileNotFoundError(f"No LoRA checkpoint found for {task_name}.")
-
-    def sort_key(path):
-        match = re.fullmatch(r"checkpoint-(\d+)", path.name)
-        return (int(match.group(1)) if match else -1, path.name)
-
-    return max(checkpoints, key=sort_key)
+    return resolve_lora_checkpoint(
+        lora_repository,
+        task_name,
+        checkpoint_name=checkpoint_name,
+        policy=policy,
+    )
 
 
 def load_classification_weights(
@@ -200,6 +153,7 @@ def load_classification_weights(
     model_id: str,
     lora_repository: str,
     lora_token: str | bool | None,
+    checkpoint_name: str | None = None,
 ) -> torch.Tensor:
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
@@ -210,6 +164,7 @@ def load_classification_weights(
         lora_repository,
         task.name,
         token=lora_token,
+        checkpoint_name=checkpoint_name,
     )
     model = PeftModel.from_pretrained(model, checkpoint)
     if hasattr(model, "merge_and_unload"):
@@ -224,6 +179,53 @@ def load_classification_weights(
             torch.cuda.empty_cache()
 
 
+def attach_classification_weights(
+    profile: Profile,
+    formulas_csv: Path,
+    output_csv: Path,
+) -> Path:
+    """Enrich an existing formula CSV with LoRA lm_head class weights."""
+    if not profile.dataset.class_token_ids:
+        raise ValueError(f"Profile {profile.name!r} defines no class_token_ids")
+    if not profile.model.lora_repo or not profile.model.lora_task:
+        raise ValueError(
+            f"Profile {profile.name!r} requires model.lora_repo and model.lora_task"
+        )
+    frame = load_formula_table(formulas_csv)
+    task = CompositionalTask(
+        name=profile.model.lora_task,
+        dataset_name=profile.dataset.hf_id,
+        split=profile.dataset.split,
+        feature_columns=profile.dataset.feature_columns,
+        tokenizer_name=profile.dataset.tokenizer_name or profile.dataset.name,
+        tokenizer_uses_pos=profile.dataset.tokenizer_uses_pos,
+        alpha=profile.search.alpha,
+        min_acts=profile.search.min_acts,
+        class_token_ids=dict(profile.dataset.class_token_ids),
+    )
+    weights = load_classification_weights(
+        task,
+        model_id=profile.model.model_id,
+        lora_repository=profile.model.lora_repo,
+        lora_token=os.environ.get("HF_TOKEN"),
+        checkpoint_name=profile.model.checkpoint_name,
+    )
+    weight_frame = pd.DataFrame(
+        weights.tolist(),
+        columns=profile.dataset.weight_column_names,
+    )
+    weight_frame.insert(0, "neuron", range(len(weight_frame)))
+
+    enriched = frame.copy()
+    enriched["neuron"] = pd.to_numeric(enriched["neuron"], errors="raise").astype(int)
+    for col in profile.dataset.weight_column_names:
+        if col in enriched.columns:
+            enriched = enriched.drop(columns=[col])
+    enriched = enriched.merge(weight_frame, on="neuron", how="left")
+    atomic_write_text(output_csv, enriched.to_csv(index=False))
+    return output_csv
+
+
 def run(
     task_name: str,
     activation_path: str | Path,
@@ -232,7 +234,7 @@ def run(
     model_id: str = DEFAULT_MODEL_ID,
     lora_repository: str = DEFAULT_LORA_REPOSITORY,
     lora_token: str | bool | None = None,
-    **kwargs
+    **kwargs,
 ) -> Path:
     """Build and save compositional explanations for one configured task."""
     task = TASKS[task_name]
@@ -264,7 +266,7 @@ def run(
     search_results = search_fn(
         searchable_activations.matrix,
         features,
-        **kwargs
+        **kwargs,
     )
 
     classification_weights = load_classification_weights(
@@ -293,9 +295,7 @@ def run(
     results = results.set_index("neuron", drop=False)
 
     for result in search_results:
-        neuron_id = searchable_activations.neuron_ids[
-            result.activation_index
-        ]
+        neuron_id = searchable_activations.neuron_ids[result.activation_index]
         results.at[neuron_id, "formula"] = result.best_formula
         results.at[neuron_id, "iou"] = result.best_score
 

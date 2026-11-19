@@ -2,7 +2,7 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from theoretical.compositional_explanations.postprocessing import (
+from formula_search.postprocessing import (
     prune_min_acts,
     threshold,
 )
