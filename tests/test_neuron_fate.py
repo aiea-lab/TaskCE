@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from theoretical.activations.neuron_fate.analysis import (
+from activation_analysis.neuron_fate import (
     analyze_neuron_fate,
     calc_bidirectional_top_k_connections,
     calc_transport_latents,

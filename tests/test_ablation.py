@@ -1,9 +1,10 @@
 from collections import Counter
 
 import pandas as pd
+import pytest
 
-from theoretical.ablation.analysis import run_ablation
-from theoretical.ablation.selection import run_ablation_analysis
+from ablation.analysis import run_ablation
+from ablation.selection import run_ablation_analysis
 
 
 def write_search_csv(path):
@@ -74,4 +75,4 @@ def test_run_ablation_runs_baseline_and_cumulative_groups(tmp_path):
     assert good_df["accuracy"].tolist() == [0.7]
     assert bad_df["n_neurons"].tolist() == [1, 2]
     assert iou_df["n_neurons"].tolist() == [1, 2, 3]
-    assert iou_df["accuracy_delta"].tolist()[-1] == -0.3
+    assert iou_df["accuracy_delta"].tolist()[-1] == pytest.approx(-0.3)

@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 import pandas as pd
-from theoretical.compositional_explanations.formula_diff import (
+from formula_comparison.formula_diff import (
     analysis as formula_diff,
 )
 

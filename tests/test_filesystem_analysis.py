@@ -8,10 +8,10 @@ pytest.importorskip("datasets")
 pytest.importorskip("peft")
 pytest.importorskip("transformers")
 
-import theoretical.ablation.analysis as ablation_analysis
-import theoretical.activations.neuron_fate.analysis as neuron_fate_analysis
-import theoretical.activations.threshold_coverage.analysis as threshold_coverage_analysis
-import theoretical.graph_analysis.analysis as graph_analysis
+import ablation.analysis as ablation_analysis
+import activation_analysis.neuron_fate as neuron_fate_analysis
+import activation_analysis.threshold_coverage as threshold_coverage_analysis
+import graph_analysis.analysis as graph_analysis
 
 
 def save_pair(directory):

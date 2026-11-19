@@ -1,7 +1,7 @@
 import pytest
 import z3
 
-from theoretical.compositional_explanations.formula_ast.analysis import (
+from formula_comparison.formula_ast.analysis import (
     formula_to_string,
     parse_formula,
 )

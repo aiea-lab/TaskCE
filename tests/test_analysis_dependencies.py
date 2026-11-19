@@ -3,8 +3,8 @@ from types import SimpleNamespace
 import numpy as np
 import pandas as pd
 
-import theoretical.ablation.analysis as ablation_analysis
-import theoretical.graph_analysis.analysis as graph_analysis
+import ablation.analysis as ablation_analysis
+import graph_analysis.analysis as graph_analysis
 
 
 def test_graph_uses_compositional_data_and_local_output_by_default(

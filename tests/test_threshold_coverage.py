@@ -5,7 +5,7 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from theoretical.activations.threshold_coverage.analysis import (
+from activation_analysis.threshold_coverage import (
     analyze_threshold_coverage,
 )
 

@@ -1,133 +1,130 @@
 # TaskCE
 
-TaskCE is a research codebase for studying how fine-tuning changes the internal representations of language models. It compares a base model with task-specific LoRA variants by capturing neuron activations and analyzing which internal features remain stable, change behavior, or appear elsewhere in the model.
+TaskCE studies how fine-tuning changes the internal representations of language models. It compares a base model with task-specific LoRA variants by capturing neuron activations, fitting Boolean compositional formulas, and measuring which internal features stay stable, change behavior, or recur across layers.
 
-## Development setup
+## Repository layout
 
-Install [mise](https://mise.jdx.dev/getting-started.html), then run these commands from the repository root:
+Eight independent top-level folders own the analytical methods, and `taskce/` owns the shared CLI executor, study profiles, and data-root resolution:
 
-```sh
-mise trust
-mise install
-mise run setup
-```
+- [`capture/`](capture/) records final-token activation matrices for base and PEFT LoRA checkpoints.
+- [`activation_analysis/`](activation_analysis/) measures threshold coverage, neuron fate, and PCA task separation over saved captures.
+- [`formula_search/`](formula_search/) builds binary lexical features and fits Boolean formulas with GPU beam search, including the pinned `vectorized_search` 2.a Triton backend.
+- [`formula_comparison/`](formula_comparison/) computes tree-edit formula diffs, heatmaps, and standalone HTML AST viewers from formula CSVs.
+- [`joint_search/`](joint_search/) compares symbolic conjunctions of parent neuron formulas against formulas searched directly on measured joint firing.
+- [`cross_layer_recurrence/`](cross_layer_recurrence/) indexes recurring compound subformulas across layers, extracts nested multi-stage chains, and matches compounds to earlier single neurons.
+- [`graph_analysis/`](graph_analysis/) builds Pearson correlation and cosine similarity neuron graphs, detects communities, and attaches compositional formulas.
+- [`ablation/`](ablation/) ranks explained neurons and measures task accuracy deltas under zero-ablation forward hooks.
 
-mise provides Python 3.12 and uv. The setup task installs the dependencies from `pyproject.toml` into `.venv`. With [mise shell activation](https://mise.jdx.dev/getting-started.html#activate-mise), the existing `.venv` is activated automatically. Commands also work through `mise exec --` without shell activation.
+Standalone task evaluation lives outside TaskCE. Formula-fit IoU remains inside `formula_search/` and `joint_search/`, and `ablation/` retains the single-token logit hook inference required to measure interventions.
 
-Full dependency setup requires Linux x86_64, including WSL on Windows: the project specifies a Linux-only FlashAttention wheel built for CUDA 12.8 and PyTorch 2.10, along with NVIDIA cuGraph. GPU workloads need a compatible NVIDIA GPU and driver. mise manages Python and uv; system libraries and GPU drivers must be installed on the host.
-
-Use `mise tasks` to list the available commands:
-
-```sh
-mise run generate
-mise run formula-diff -- --layer /path/to/layer --task snli
-mise run formula-viewer -- --formula-diff-dir /path/to/layer/results/formula_diff
-mise exec -- uv run --no-sync python
-```
-
-The capture script uses the model, dataset, and checkpoint repository configured in `experimental/main.py`. Run it from the repository root with `python experimental/main.py`. The formula tasks operate on existing analysis outputs. Run `mise run setup` after changing dependencies; the workflow tasks use the installed environment without syncing it again. Keep notebook kernels pointed at this repository's `.venv`.
-
-## Research question
-
-Fine-tuning can improve a model's task performance without showing what changed inside the model.
-
-TaskCE studies those internal changes through a more direct question:
-
-> What happens to the model's internal features when it is fine-tuned for a classification task?
-
-The project examines whether features are preserved in the same neurons, modified, reorganized across neurons, or replaced by new task-related behavior.
-
-## Project structure
+## Pod data paths and `TASKCE_DATA_DIR`
 
 ```mermaid
-flowchart TB
-    acquisition["Core data acquisition<br/>(probing model activations)"]
-    data[("Core input data<br/>(activations at layers)")]
+flowchart LR
+    GH["GitHub · pinned code revision"] -->|Fetch at startup| CODE
+    HF["Hugging Face · pinned model revision"] -->|Fetch when needed| CACHE
 
-    activation["Activation analysis"]
-    explanations["Compositional explanations"]
-    graphs["Graph analysis"]
-    ablation["Ablation analysis"]
-    evaluation["Evaluation"]
+    subgraph POD["Analysis pod"]
+        CODE["Local checkout"] --> EXEC["uv executor"]
+        EXEC --> RUN["Selected analysis"]
+        CACHE["Local model cache"] --> RUN
+        RUN <--> SCRATCH["Local scratch"]
+    end
 
-    acquisition --> data
-
-    data --> activation
-    data --> explanations
-    data --> graphs
-    data --> ablation
-    data --> evaluation
+    PVC[("PVC · TASKCE_DATA_DIR")] -->|Read inputs or resume| RUN
+    RUN -->|Save checkpoints and results| PVC
 ```
 
-The project separates collecting core input data from analyzing it. This diagram shows that broad organization rather than dependencies among individual analyses.
+Code, model caches, and durable research data stay on separate paths:
 
-## Core data acquisition
+- **Code and Python environment.** Keep the git checkout and `.venv` in the container image or on pod-local storage so Python imports avoid network-volume latency.
+- **Durable data (`TASKCE_DATA_DIR`).** Every analysis resolves captures, prepared `.npz` bundles, trained tokenizers, checkpoints, and per-run outputs under `TASKCE_DATA_DIR`. When `TASKCE_DATA_DIR` is unset locally, it defaults to `./data`. On a pod, point `TASKCE_DATA_DIR` at the mounted PVC directory.
+- **Frozen baselines (`TASKCE_BASELINE_DIR`).** Read-only reference archives default to `<TASKCE_DATA_DIR>/../baselines/57a1e74` when present or can be set explicitly through `TASKCE_BASELINE_DIR` or `--baseline-dir`.
+- **On-demand model cache (`HF_HOME`).** Stages that do not load weights (`joint-search`, `cross-layer-recurrence`, `formula-comparison`, `graph-analysis`, `activation-analysis`, and `ablation --stage select`) never import `transformers`, `peft`, or `huggingface_hub` and never trigger model downloads. When a stage requires a model or dataset, `taskce/hf.py` keeps `HF_HOME` on pod-local storage outside `TASKCE_DATA_DIR`.
 
-The [capture API](experimental/README.md) records selected layers in one inference pass per batch and keeps the results in CPU memory. Run its SNLI entry point with `python experimental/main.py` to capture the base model and latest SNLI LoRA checkpoint. Final-token selection and saving happen separately in `main.py`, producing matrices where each row represents a dataset example and each column represents a neuron.
+## Setup
 
-The capture script currently processes SNLI using the base model and the latest SNLI LoRA checkpoint.
+Full dependency installation requires Linux x86_64 with an NVIDIA GPU and CUDA 12.8 driver because `pyproject.toml` pins a Linux FlashAttention wheel and NVIDIA cuGraph.
 
-## Analyses
+Install [mise](https://mise.jdx.dev/getting-started.html) or `uv`, then sync the environment on pod-local disk:
 
-The [analysis code](theoretical/) is organized into the areas below.
+```sh
+uv sync --python 3.12
+```
 
-### Activation analysis
+Verify the environment, pinned SHA-256 hashes, and mounted data paths without downloading models:
 
-The [activation analyses](theoretical/activations/) operate directly on saved activation matrices.
+```sh
+export TASKCE_DATA_DIR="/~ /TaskCE/data"
+uv run taskce list
+uv run taskce doctor --profile snli
+```
 
-- **Threshold coverage** measures how many examples activate each neuron after applying a per-neuron quantile threshold. It helps determine whether enough activation evidence exists for formula search.
-- **Task separation** applies PCA to the activation space and measures how examples from different task classes are distributed.
-- **Neuron fate** compares base and fine-tuned activation spaces. It measures direct neuron correspondence, affine relationships, cross-model similarity, and possible movement of behavior between neurons.
+## Run analyses with the executor
 
-### Compositional explanations
+Every analysis runs through `uv run taskce <analysis> --profile <profile>`. Each fresh run writes into an isolated `<TASKCE_DATA_DIR>/runs/<analysis>/<profile>/<run_id>/` directory with atomic checkpoints and per-stage wall-clock timing in `run_meta.json`.
 
-The [compositional explanation analysis](theoretical/compositional_explanations/) searches for readable formulas that approximate neuron activation patterns. Dataset text is converted into binary token-presence features. These features are combined with logical `AND`, `OR`, and `NOT` operations. Candidate formulas are scored by intersection over union with each thresholded neuron activation vector.
+### Reproduce the SNLI joint-search baseline
 
-The analysis contains:
+On a GPU pod with the `ggong1-dev-main` PVC mounted at `/~ /`:
 
-- tokenization and feature construction;
-- activation thresholding and low-activation pruning;
-- symbolic formula rendering and simplification;
-- structural comparison of base and fine-tuned formulas;
-- CSV and HTML outputs for inspecting formula differences.
+```sh
+export TASKCE_DATA_DIR="/~ /TaskCE/data"
+uv run taskce joint-search --profile snli --check-only
+uv run taskce joint-search --profile snli --verify-baseline
+```
 
-#### Search implementations
+The `validate` stage checks the SHA-256 digests of `features.npz`, `layer.8.npz`, `layer.8.csv`, `layer.8.csv.manifest.json`, `formula_eval.py`, and the three `vectorized_search` modules before running any GPU kernel. The `sweep` stage executes all 24 `(pair, length)` search cells, writes `sweep.csv` and `results.json`, and `--verify-baseline` compares `baselines.json`, `masks.npz`, `sweep.csv`, and all 24 cell files against `TaskCE/baselines/57a1e74` in `reproduction_report.json`.
 
-The [**fully vectorized search**](theoretical/compositional_explanations/new_search/algorithm.py) substantially improves the throughput of the earlier [**batched per-neuron GPU search**](theoretical/compositional_explanations/search/algorithm.py) by vectorizing scoring across neurons, beam states, candidate features, and composition operators. Boolean activation and feature vectors are bit-packed, while [**Triton kernels**](theoretical/compositional_explanations/new_search/kernels.py) perform the IoU calculations directly on the GPU.
+To resume an interrupted run directory after preemption, pass `--run-id <run_id> --resume`.
 
-The earlier batched implementation substantially reduced the memory requirements of the [**original NLI compositional search**](https://github.com/jayelm/compexp/blob/master/nli/code/analyze.py) by partitioning neurons across workers and batching each neuron's candidate IoU evaluations on the GPU.
+### Run cross-layer recurrence without model downloads
 
-### Graph analysis
+```sh
+export TASKCE_DATA_DIR="/~ /TaskCE/data"
+uv run taskce cross-layer-recurrence --profile snli
+```
 
-The [graph analysis](theoretical/graph_analysis/) studies relationships between neurons within an activation space. It constructs neuron graphs from Pearson correlation or cosine similarity, removes weaker edges, detects communities, identifies highly connected neurons, and attaches compositional formulas to the resulting graph structure.
+By default this runs the CPU-only `index`, `chains`, and `match` stages over saved formula CSVs and prepared `.npz` features. Pass `--stage full_sweep` on a GPU pod to refit all configured layers first.
 
-This provides a view of how groups of related neurons are organized before and after fine-tuning.
+### Run capture, formula search, comparison, graphs, and ablation
 
-### Ablation analysis
+```sh
+export TASKCE_DATA_DIR="/~ /TaskCE/data"
+export HF_HOME="/tmp/hf-cache"
 
-The [ablation analysis](theoretical/ablation/) tests whether neurons identified by the explanation search affect model behavior. Neurons are ranked using their formula scores and classification weights. Selected groups are then disabled during inference, allowing their effect on task accuracy and class predictions to be measured.
+uv run taskce capture --profile snli --batch-size 32
+uv run taskce activation-analysis --profile snli --layer model.layers.8.feed_forward
+uv run taskce formula-search --profile snli --layer layer.8
+uv run taskce formula-comparison --profile snli --stage ast_viewer --csv path/to/layer.8.csv
+uv run taskce graph-analysis --profile snli --formulas path/to/snli_beam_results.csv
+uv run taskce ablation --profile snli --formulas path/to/snli_beam_results.csv
+```
 
-### Evaluation
+### Add a new study profile
 
-The [evaluation code](theoretical/evaluation/) compares base and LoRA-adapted models on their classification tasks. It records successful predictions, incorrect predictions, rejected outputs, and overall accuracy. These measurements separate visible task improvement from changes found by the internal analyses.
+Built-in TOML profiles live in [`taskce/profiles/`](taskce/profiles/) (`snli`, `claim`, `fallacy`). To add a new study such as `bowman`, place `bowman.toml` in `$TASKCE_DATA_DIR/profiles/bowman.toml` or pass `--profile ./bowman.toml`. Profiles support single-level inheritance with `extends`:
 
-## Current study
+```toml
+name = "bowman"
+description = "Bowman CoEx single-neuron and joint-search study"
+extends = "snli"
 
-The [joint-search runner](experiments/joint-search/run.py) and [cross-layer recurrence analysis](experiments/cross-layer-recurrence/index_subformulas.py) have a frozen reference dataset on the Nautilus claim `ggong1-dev-main`. Under the claim's mount point, open `TaskCE/baselines/57a1e74/`. The [artifact manifest](experiments/artifacts.json) lists paths relative to that directory, byte counts, and SHA-256 hashes.
+[model]
+lora_task = "bowman"
 
-Open `experiments/joint-search/results/joint-search.html` or `experiments/cross-layer-recurrence/results/cross-layer-summary.html` inside the archive to browse the results offline. Preserve the relative directory layout when copying the reports so their navigation links work. The joint runner's original checkpoint-compatible source is under `historical-source/33a4034/`.
+[dataset]
+name = "bowman"
+hf_id = "stanfordnlp/snli"
+split = "validation"
+tokenizer_name = "spacy-pos-bowman-features"
 
-For scripts that default to an adjacent `results/` folder, copy the corresponding archived results directory into the same relative location in a checkout before running. The artifact manifest covers retained outputs and reference files. Fresh GPU fitting also requires the original SNLI features and activation captures.
+[artifacts]
+prepared_inputs_relpaths = ["bowman/inputs"]
+```
 
-The current configuration primarily studies:
+Newly trained feature tokenizers save to `$TASKCE_DATA_DIR/tokenizers/` so the repository checkout stays clean.
 
-- **Model:** `LiquidAI/LFM2.5-1.2B-Thinking`
-- **Fine-tuning:** task-specific LoRA checkpoints
-- **Natural language inference:** Stanford SNLI
-- **Claim verification:** VitaminC
+## Frozen Nautilus baseline
 
-The evaluation and task-separation components also contain support for the Logical Fallacy dataset.
-
-## Browse formula trees offline
-
-See the [formula tree viewer guide](theoretical/compositional_explanations/formula_ast/README.md) to build, browse, and verify offline viewers.
+The frozen reference dataset from commit `57a1e74` lives on the Nautilus PVC `ggong1-dev-main` under `TaskCE/baselines/57a1e74/` and is indexed by [`taskce/resources/baseline_57a1e74.json`](taskce/resources/baseline_57a1e74.json). See [`formula_comparison/formula_ast/README.md`](formula_comparison/formula_ast/README.md) to build and verify offline HTML AST viewers.
