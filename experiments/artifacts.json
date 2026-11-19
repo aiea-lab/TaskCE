@@ -1,0 +1,382 @@
+{
+  "source_commit": "57a1e74f0dddee6b3d539a13384c775c619db63b",
+  "claim": "ggong1-dev-main",
+  "directory": "TaskCE/baselines/57a1e74",
+  "files": [
+    {
+      "path": "experiments/cross-layer-recurrence/results/cross-layer-summary.html",
+      "bytes": 268800,
+      "sha256": "76f7fbbe10ab7f9fda30b5593f9ae15049d6b92e7230fe297d5e68c8f4c88a20"
+    },
+    {
+      "path": "experiments/cross-layer-recurrence/results/cross-layer-visualizer.html",
+      "bytes": 18161714,
+      "sha256": "1be40d5e057343d75302a558a3b417834ab45ff2b84f0e9ffc33129400db0bfc"
+    },
+    {
+      "path": "experiments/cross-layer-recurrence/results/full/embedding_norm.csv",
+      "bytes": 2479783,
+      "sha256": "8ba9ddb2a1c23ef3a2835458209d757b9725f09bad3804a2fe6a349ac5ee17f5"
+    },
+    {
+      "path": "experiments/cross-layer-recurrence/results/full/embedding_norm.csv.manifest.json",
+      "bytes": 61584,
+      "sha256": "9e432e1822dafc227309e8eacb9b935537a36f077f5d672847d8dcb429da04d1"
+    },
+    {
+      "path": "experiments/cross-layer-recurrence/results/full/layer.10.csv",
+      "bytes": 2484209,
+      "sha256": "63da7d648d8dc5de96d66ee1cd7bf4f734b41189e5609dd176cde0b8bc4603f6"
+    },
+    {
+      "path": "experiments/cross-layer-recurrence/results/full/layer.10.csv.manifest.json",
+      "bytes": 61578,
+      "sha256": "4a56412c170415d0cba2652b6217d423d5dd1d1441858ba4dbb1ba53e82750df"
+    },
+    {
+      "path": "experiments/cross-layer-recurrence/results/full/layer.11.csv",
+      "bytes": 2486537,
+      "sha256": "766ee2e9c9ce35073fb38745b95655254a74683545db52354965fcda08091529"
+    },
+    {
+      "path": "experiments/cross-layer-recurrence/results/full/layer.11.csv.manifest.json",
+      "bytes": 61578,
+      "sha256": "0e7c2e57bd930c29ca1403573fcabca390e7228e566cb92f8125056f4f88a039"
+    },
+    {
+      "path": "experiments/cross-layer-recurrence/results/full/layer.12.csv",
+      "bytes": 2485060,
+      "sha256": "57bf04e2258a8e7e8ac6ccec6cf4e09c801b34b4ea5357b59c3c1219d4bce8f3"
+    },
+    {
+      "path": "experiments/cross-layer-recurrence/results/full/layer.12.csv.manifest.json",
+      "bytes": 61578,
+      "sha256": "c2109698d5d22d2b4c29cc18603adcedcce803806367cd9880e4aa3526a719e5"
+    },
+    {
+      "path": "experiments/cross-layer-recurrence/results/full/layer.13.csv",
+      "bytes": 2483155,
+      "sha256": "39aa8deac9355f8a0fd66c31ef31adabfba8bed01bdcfae39bb1685208a2bee5"
+    },
+    {
+      "path": "experiments/cross-layer-recurrence/results/full/layer.13.csv.manifest.json",
+      "bytes": 61578,
+      "sha256": "6e3ce857998060b77f4c0a527edd753f8b7da61f92a75591d8b762d81f979c0d"
+    },
+    {
+      "path": "experiments/cross-layer-recurrence/results/full/layer.14.csv",
+      "bytes": 2480995,
+      "sha256": "b76c6d999d73b36dcbf84db50c8a721bfefb27fddcd4cbd0a7b5b791ab825457"
+    },
+    {
+      "path": "experiments/cross-layer-recurrence/results/full/layer.14.csv.manifest.json",
+      "bytes": 61578,
+      "sha256": "b8bd90d27997d2d49f44dbb7385b011fc7f3a7f3ae94294bcdf399b5f5422896"
+    },
+    {
+      "path": "experiments/cross-layer-recurrence/results/full/layer.8.csv",
+      "bytes": 2488076,
+      "sha256": "91ad23f5e21f52ad70ec69b15eae57dc4cb5480c7762d6b37da30ea8d175444a"
+    },
+    {
+      "path": "experiments/cross-layer-recurrence/results/full/layer.8.csv.manifest.json",
+      "bytes": 61577,
+      "sha256": "c7d3ec00762461abb0f5bf4b8cb03950a26131946864fdab7f54667e1f98207c"
+    },
+    {
+      "path": "experiments/cross-layer-recurrence/results/full/layer.9.csv",
+      "bytes": 2479364,
+      "sha256": "7c143e7d71a39ad6e056866d8b0bd83d8241f9e66a430c453698be69f0906c0c"
+    },
+    {
+      "path": "experiments/cross-layer-recurrence/results/full/layer.9.csv.manifest.json",
+      "bytes": 61577,
+      "sha256": "afa4ba910fb7c4056f0085ac49ae2f9be13cd6d187c8518365816ffe27286d72"
+    },
+    {
+      "path": "experiments/cross-layer-recurrence/results/preliminary-chains.json",
+      "bytes": 196929,
+      "sha256": "8f2674193c9c650f2e8e38ee17177061b48a968e98410fb0167d7679ba005538"
+    },
+    {
+      "path": "experiments/cross-layer-recurrence/results/recurrence.json.gz",
+      "bytes": 16235,
+      "sha256": "cbafb17223bea3b3153b3b25cfbabe079297427a26213821380f23ef41992639"
+    },
+    {
+      "path": "experiments/cross-layer-recurrence/results/selection.json",
+      "bytes": 2843,
+      "sha256": "6afe81c23885bac68ad8333e08d077ad0186b816ae1ab34ee8d4ca3b79b7c035"
+    },
+    {
+      "path": "experiments/cross-layer-recurrence/results/subformula-counts/all-compound-occurrences.json.gz",
+      "bytes": 6608606,
+      "sha256": "a99ea6933b050504b4066013c784ad4e07598ff9e20fd5311b03db7eea95ce38"
+    },
+    {
+      "path": "experiments/cross-layer-recurrence/results/subformula-counts/counts.json",
+      "bytes": 3101,
+      "sha256": "95fee98a79ca2e4edf088837d7429426ef0dd98e78550bcf6064247b32dffe11"
+    },
+    {
+      "path": "experiments/cross-layer-recurrence/results/trials/scores.json",
+      "bytes": 2386,
+      "sha256": "519f44c7a81fb97b56b6114253cb23b70186ad33ad0e80a1595b835352203f02"
+    },
+    {
+      "path": "experiments/joint-search/results/baselines.json",
+      "bytes": 7862,
+      "sha256": "2072f664690de86491955f493820475d6fd273e09a7728d97e2cd4ea9b0345ff"
+    },
+    {
+      "path": "experiments/joint-search/results/cells/319-817-L1.json",
+      "bytes": 493,
+      "sha256": "eb1cf2df3a4cd12cf3e0b2ce777f45fa91f1307d8e9cbceca5923ec18a3026f0"
+    },
+    {
+      "path": "experiments/joint-search/results/cells/319-817-L12.json",
+      "bytes": 745,
+      "sha256": "4e5014e2422b12ebe40e0cc2c60420b3892ca6c07788ccad96cd1386fd603268"
+    },
+    {
+      "path": "experiments/joint-search/results/cells/319-817-L24.json",
+      "bytes": 1025,
+      "sha256": "bc9676c2a841a1c8ab714c8d9b8e620fa1ccf56948ca42bf39ed417cb6f9f910"
+    },
+    {
+      "path": "experiments/joint-search/results/cells/319-817-L3.json",
+      "bytes": 541,
+      "sha256": "7d7b8b355741e20d5ae546b16a4585c672b323e37025c6d1fa56e795cbf47c68"
+    },
+    {
+      "path": "experiments/joint-search/results/cells/319-817-L48.json",
+      "bytes": 1634,
+      "sha256": "dac7a06d4801fea904849387fb2626e14aaf6ce61caeb0db01fa0a73be1799e9"
+    },
+    {
+      "path": "experiments/joint-search/results/cells/319-817-L5.json",
+      "bytes": 587,
+      "sha256": "59d152db4106a2ac61b34efea399de87ffd2af3666519442089be112c9145987"
+    },
+    {
+      "path": "experiments/joint-search/results/cells/319-817-L72.json",
+      "bytes": 2215,
+      "sha256": "4f2f67bb23f76628dec281a93f72cc9095debfad05d66f1579576f19ae41565b"
+    },
+    {
+      "path": "experiments/joint-search/results/cells/319-817-L96.json",
+      "bytes": 2681,
+      "sha256": "8931a96d2eb66ab05e8d7b944a81deb10fd41ccdb8dc357e9ba455ac11478264"
+    },
+    {
+      "path": "experiments/joint-search/results/cells/340-386-L1.json",
+      "bytes": 489,
+      "sha256": "9a9582d707b76e3260c737fcd3a97148748ed507e0f0172ff43127852b3ef326"
+    },
+    {
+      "path": "experiments/joint-search/results/cells/340-386-L12.json",
+      "bytes": 716,
+      "sha256": "0dd42c6a47853112d368ef76857099251f40982fe035bb56aac51d9882b18c46"
+    },
+    {
+      "path": "experiments/joint-search/results/cells/340-386-L24.json",
+      "bytes": 1016,
+      "sha256": "6873c9fe47e62f1dcc905989aaaf9824b7311bed23f6a463134ccd04d7ea9c89"
+    },
+    {
+      "path": "experiments/joint-search/results/cells/340-386-L3.json",
+      "bytes": 540,
+      "sha256": "93fa6415b1186d47eb13b22da1a0769320c630d10bbdab860300f006dd1c7fba"
+    },
+    {
+      "path": "experiments/joint-search/results/cells/340-386-L48.json",
+      "bytes": 1599,
+      "sha256": "febd9354ced98306a0fe685dcc9fc2d421a1012d6c5183f208be0c9b996e5e82"
+    },
+    {
+      "path": "experiments/joint-search/results/cells/340-386-L5.json",
+      "bytes": 574,
+      "sha256": "3f2ce207c21024e105271d4361145e6335f178946b7061a0930eb54e69b64fec"
+    },
+    {
+      "path": "experiments/joint-search/results/cells/340-386-L72.json",
+      "bytes": 2136,
+      "sha256": "35429c42d79481bcc257e6687489f0fe3b127b50900632c72abe3b55b7c3b6cb"
+    },
+    {
+      "path": "experiments/joint-search/results/cells/340-386-L96.json",
+      "bytes": 2136,
+      "sha256": "702e1addbbf3461c3d966d8c4c0aadd687f47ab6fad222923fa8a88614b733e3"
+    },
+    {
+      "path": "experiments/joint-search/results/cells/758-1529-L1.json",
+      "bytes": 493,
+      "sha256": "e1e552b8ccac0ebf183104b2e91aa9b8157fcb82ebde2ecd79d0c77986d85fc4"
+    },
+    {
+      "path": "experiments/joint-search/results/cells/758-1529-L12.json",
+      "bytes": 754,
+      "sha256": "95485c742552853565628805e9180b09a36384c2beaf825ad7792e6e45e35b2e"
+    },
+    {
+      "path": "experiments/joint-search/results/cells/758-1529-L24.json",
+      "bytes": 1040,
+      "sha256": "d8bfcb9aab3b6d2a19710f9ff2152f62c8ac068fadabfdd4f4cc1a8916406bfc"
+    },
+    {
+      "path": "experiments/joint-search/results/cells/758-1529-L3.json",
+      "bytes": 541,
+      "sha256": "8deba41bd00e19dfdcbf553365339a8066d7fba1dab0a3725c31b8e916a37566"
+    },
+    {
+      "path": "experiments/joint-search/results/cells/758-1529-L48.json",
+      "bytes": 1642,
+      "sha256": "389d7673830a91d3994f7aabcc52db2e4fc57afacecf80927c937337ba308f74"
+    },
+    {
+      "path": "experiments/joint-search/results/cells/758-1529-L5.json",
+      "bytes": 584,
+      "sha256": "b4bae599d047b297e0da8c91f81ac34095b43abfe3ea7b354f21f64cf8c76323"
+    },
+    {
+      "path": "experiments/joint-search/results/cells/758-1529-L72.json",
+      "bytes": 2243,
+      "sha256": "3b99ebd8588cf9d1965b3ba809cd7a89fb3b6fb58f36dc863cf88147a1cfa07f"
+    },
+    {
+      "path": "experiments/joint-search/results/cells/758-1529-L96.json",
+      "bytes": 2869,
+      "sha256": "974a8cc130208f3a6005c2fa2e2e72f9e373d26bce94b97c072fabc8038e4d81"
+    },
+    {
+      "path": "experiments/joint-search/results/joint-search.html",
+      "bytes": 74722,
+      "sha256": "b0da5274cbef33810d5c4bad4bc1683b5e87ec2b5b218543b52c6c4809021406"
+    },
+    {
+      "path": "experiments/joint-search/results/manifest.json",
+      "bytes": 18877,
+      "sha256": "cf80c8bc39462cfe846ed5741a7044387a06b5b5b78f698eb03f69238cd8e468"
+    },
+    {
+      "path": "experiments/joint-search/results/masks.npz",
+      "bytes": 3659,
+      "sha256": "0823963fdd1a6fd355202f652f57bfadb6c4eec0ed01f1763828b5ebad09f747"
+    },
+    {
+      "path": "experiments/joint-search/results/parents/layer.8.csv",
+      "bytes": 2488076,
+      "sha256": "91ad23f5e21f52ad70ec69b15eae57dc4cb5480c7762d6b37da30ea8d175444a"
+    },
+    {
+      "path": "experiments/joint-search/results/parents/layer.8.csv.manifest.json",
+      "bytes": 61577,
+      "sha256": "c7d3ec00762461abb0f5bf4b8cb03950a26131946864fdab7f54667e1f98207c"
+    },
+    {
+      "path": "experiments/joint-search/results/provenance.json",
+      "bytes": 771,
+      "sha256": "850e9480f3858da658abbbe3bcd01aaf00ad6d49f280f0de6c0479a8c99f1ce7"
+    },
+    {
+      "path": "experiments/joint-search/results/results.json",
+      "bytes": 29295,
+      "sha256": "1229c878e4831196a6c824838cac9cbaaf9cdf9a7e694ac066edb0f4c4d98905"
+    },
+    {
+      "path": "experiments/joint-search/results/sweep.csv",
+      "bytes": 19273,
+      "sha256": "06d4edb9999c68fcc62f814ec31bcbca2ad41667aae8f431064af77e04cb4f47"
+    },
+    {
+      "path": "experiments/presented-visualizations/fixed-alpha/formula-example.svg",
+      "bytes": 7715,
+      "sha256": "0ae4861abc91b4062e0ac5953045ab68c994a097b12a4f585de3c9a188d0d9c6"
+    },
+    {
+      "path": "experiments/presented-visualizations/fixed-alpha/formula-trees.html",
+      "bytes": 20056886,
+      "sha256": "ec5bdb208321f080364d8aee95db0f148c0fea17dd411883bb96749f1a4d3570"
+    },
+    {
+      "path": "experiments/presented-visualizations/fixed-alpha/shared-clause.svg",
+      "bytes": 2858,
+      "sha256": "44eb0bdbbe74f049724ee282c2fc2f8beb1fe19b06ebc22c679cf97f5891e640"
+    },
+    {
+      "path": "experiments/presented-visualizations/fixed-alpha/validation-curves.png",
+      "bytes": 94472,
+      "sha256": "a8b9dfc3897ecf91dd68fd4553ab47a674b8530e70f35a4bf88dd824ac358921"
+    },
+    {
+      "path": "experiments/presented-visualizations/full-snli/formula-example.svg",
+      "bytes": 17817,
+      "sha256": "5275a4454986aee9cfaf84937dbd26d066f4eb01e80b4eeba024c822c21f5436"
+    },
+    {
+      "path": "experiments/presented-visualizations/full-snli/formula-trees.html",
+      "bytes": 44522505,
+      "sha256": "d60bbfaaa35e960366df1baa6577572fef68f914e3623fa6b49fc5dc0a6be865"
+    },
+    {
+      "path": "experiments/presented-visualizations/full-snli/shared-clause.svg",
+      "bytes": 2921,
+      "sha256": "ee15d0735a00bffb9b0cdf9897b2d8374c719a25ba9e1f1091b355c40db356a4"
+    },
+    {
+      "path": "experiments/presented-visualizations/layer8-full-gp/validation.png",
+      "bytes": 54549,
+      "sha256": "eccb2f9649280adcfa7833b61ac4cf7214b621ff591441e02f0c4eb55b1b9456"
+    },
+    {
+      "path": "experiments/presented-visualizations/nautilus-study/nautilus-study.html",
+      "bytes": 14555421,
+      "sha256": "569b78fad0250fc7760345beb0aa4ab4b4a23ea6d31effe6b4e3fd38d21c44df"
+    },
+    {
+      "path": "experiments/presented-visualizations/nautilus-study/nautilus-study.pdf",
+      "bytes": 6843597,
+      "sha256": "6c6145e17fc310226c612ccab70fbddaa9e686d7c7337e1ab25b5ecd3def6f09"
+    },
+    {
+      "path": "experiments/presented-visualizations/vectorized-2a/formula-example.svg",
+      "bytes": 4504,
+      "sha256": "278c49e806abaeac96a92664aa7e837e8c5f12fef9a4e3e0a7a3ba13ccb1264c"
+    },
+    {
+      "path": "experiments/presented-visualizations/vectorized-2a/formula-trees.html",
+      "bytes": 11150918,
+      "sha256": "9d128c7b7c92b395bda86d7a4e54fff1534b1f34fe1ebec24d8dbb8e40e1e125"
+    },
+    {
+      "path": "experiments/presented-visualizations/vectorized-2a/shared-clause.svg",
+      "bytes": 2865,
+      "sha256": "894a23d8c965a763407978f19aa05313eed3e28ffd7dd7ac7a67bc5df91fddc6"
+    },
+    {
+      "path": "experiments/presented-visualizations/vectorized-2a/validation.png",
+      "bytes": 55971,
+      "sha256": "9c4a150e51381f467b7525a7b19528d70d4f60cbeb0d516300bc09f12ad06d4e"
+    },
+    {
+      "path": "historical-source/33a4034/experiments/joint-search/run.py",
+      "bytes": 17573,
+      "sha256": "d1a99adfe1a5efd22485e39dbbb15ca92ef6e5d73fc7c5d7f95aa911301f3be6"
+    },
+    {
+      "path": "historical-source/33a4034/experiments/nautilus/formula_eval.py",
+      "bytes": 2353,
+      "sha256": "c943c3ca49f2e8942fe53778cea8aa2b3d60837352e5ca46292b8cf9f52f9dcc"
+    },
+    {
+      "path": "historical-source/33a4034/experiments/nautilus/recurrence.py",
+      "bytes": 14375,
+      "sha256": "9db6cf10a4ebb94e3b3eee3d26e940cffe216e7e871d02180e3e8fbc2ca5864a"
+    },
+    {
+      "path": "historical-source/33a4034/experiments/nautilus/verify_2a.py",
+      "bytes": 1507,
+      "sha256": "07349229e43a9c2e9fa29035298292aabcdb7f6ef888abea841fc790720bd8c3"
+    }
+  ]
+}
