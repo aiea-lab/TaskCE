@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from theoretical.ablation.selection import (
+from ablation.selection import (
     SEARCH_RESULT_COLUMNS,
     run_ablation_analysis,
 )

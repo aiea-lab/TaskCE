@@ -9,7 +9,7 @@ from sympy import Symbol
 torch = pytest.importorskip("torch")
 pytest.importorskip("triton")
 
-from theoretical.compositional_explanations.new_search.algorithm import (
+from formula_search.new_search.algorithm import (
     AND_NOT,
     OR,
     SearchConfig as NewSearchConfig,
@@ -19,7 +19,7 @@ from theoretical.compositional_explanations.new_search.algorithm import (
     search_all as new_search_all,
     select_unique_topk,
 )
-from theoretical.compositional_explanations.search.algorithm import (
+from formula_search.search.algorithm import (
     SearchConfig as ReferenceSearchConfig,
     SearchResult as ReferenceSearchResult,
     search_all as reference_search_all,

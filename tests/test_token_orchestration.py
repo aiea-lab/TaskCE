@@ -30,10 +30,7 @@ class FakeSpacyModel:
 def load_orchestration_module(monkeypatch):
     repo_root = Path(__file__).resolve().parents[1]
     monkeypatch.syspath_prepend(str(repo_root))
-    package = (
-        "theoretical.compositional_explanations"
-        ".construction.tokenizer"
-    )
+    package = "formula_search.construction.tokenizer"
     sys.modules.pop(package, None)
     sys.modules.pop(f"{package}.orchestration", None)
     return importlib.import_module(f"{package}.orchestration")

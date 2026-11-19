@@ -4,10 +4,10 @@ import pytest
 
 pytest.importorskip("spacy")
 
-from theoretical.compositional_explanations.construction.vectors import (
+from formula_search.construction.vectors import (
     construct_feature_vectors,
 )
-from theoretical.compositional_explanations.construction.vocabulary import (
+from formula_search.construction.vocabulary import (
     select_feature_token_ids,
 )
 
