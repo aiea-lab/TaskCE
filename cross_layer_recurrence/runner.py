@@ -17,6 +17,10 @@ class CrossLayerRecurrenceOptions:
     locations: tuple[str, ...] | None = None
     results_dir: Path | None = None
     inputs_dir: Path | None = None
+    sentence_arrow: Path | None = None
+    neuron_ids: str = "all"
+    device: str = "cuda"
+    no_seed_layer8: bool = False
 
 
 def add_cli_arguments(parser: argparse.ArgumentParser) -> None:
@@ -38,6 +42,28 @@ def add_cli_arguments(parser: argparse.ArgumentParser) -> None:
         default=None,
         help="Directory containing prepared features.npz and <layer>.npz files.",
     )
+    parser.add_argument(
+        "--sentence-arrow",
+        type=Path,
+        default=None,
+        help="Explicit snli-validation.arrow path for full_sweep row-hash verification.",
+    )
+    parser.add_argument(
+        "--ids",
+        dest="neuron_ids",
+        default="all",
+        help="Comma-separated neuron IDs or 'all' for full_sweep (default: all).",
+    )
+    parser.add_argument(
+        "--device",
+        default="cuda",
+        help="Torch device for full_sweep (default: %(default)s).",
+    )
+    parser.add_argument(
+        "--no-seed-layer8",
+        action="store_true",
+        help="Refit layer.8 directly instead of seeding from the historical reference trial.",
+    )
 
 
 def options_from_args(args: argparse.Namespace) -> CrossLayerRecurrenceOptions:
@@ -45,6 +71,10 @@ def options_from_args(args: argparse.Namespace) -> CrossLayerRecurrenceOptions:
         locations=tuple(args.locations.split(",")) if args.locations else None,
         results_dir=args.results_dir,
         inputs_dir=args.inputs,
+        sentence_arrow=args.sentence_arrow,
+        neuron_ids=args.neuron_ids,
+        device=args.device,
+        no_seed_layer8=bool(args.no_seed_layer8),
     )
 
 
@@ -140,7 +170,16 @@ def run(
                 from cross_layer_recurrence import full_sweep
 
                 full_sweep.run_full_sweep(
-                    workspace.data_root, profile, run_root=workspace.output_dir
+                    workspace.data_root,
+                    profile,
+                    run_root=workspace.output_dir,
+                    inputs_dir=opts.inputs_dir,
+                    reference_dir=opts.results_dir,
+                    layers=locations,
+                    sentence_path=opts.sentence_arrow,
+                    neuron_ids=opts.neuron_ids,
+                    device=opts.device,
+                    seed_layer8=not opts.no_seed_layer8,
                 )
                 artifacts["import_json"] = workspace.output_dir / "import.json"
                 artifacts["selection_json"] = workspace.output_dir / "selection.json"

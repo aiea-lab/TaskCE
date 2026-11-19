@@ -234,12 +234,27 @@ def run(
     model_id: str = DEFAULT_MODEL_ID,
     lora_repository: str = DEFAULT_LORA_REPOSITORY,
     lora_token: str | bool | None = None,
+    *,
+    alpha: float | None = None,
+    min_acts: int | None = None,
+    checkpoint_name: str | None = None,
+    dataset_path: str | Path | None = None,
+    data_root: DataRoot | None = None,
     **kwargs,
 ) -> Path:
     """Build and save compositional explanations for one configured task."""
     task = TASKS[task_name]
-    activations = load_activation(activation_path)
-    dataset = load_dataset(task.dataset_name, split=task.split)
+    activations = (
+        data_root.load_activation(activation_path)
+        if data_root is not None
+        else load_activation(activation_path)
+    )
+    if dataset_path is not None:
+        from datasets import load_from_disk
+
+        dataset = load_from_disk(str(dataset_path))
+    else:
+        dataset = load_dataset(task.dataset_name, split=task.split)
     if len(dataset) != activations.shape[0]:
         raise ValueError(
             f"{task.name} dataset rows do not match activation rows: "
@@ -258,10 +273,13 @@ def run(
         task.feature_columns,
     )
 
-    binary_activations = threshold(activations, alpha=task.alpha)
+    binary_activations = threshold(
+        activations,
+        alpha=task.alpha if alpha is None else alpha,
+    )
     searchable_activations = prune_min_acts(
         binary_activations,
-        min_acts=task.min_acts,
+        min_acts=task.min_acts if min_acts is None else min_acts,
     )
     search_results = search_fn(
         searchable_activations.matrix,
@@ -278,6 +296,7 @@ def run(
             if lora_token is None
             else lora_token
         ),
+        checkpoint_name=checkpoint_name,
     )
     if classification_weights.shape[0] != activations.shape[1]:
         raise ValueError(

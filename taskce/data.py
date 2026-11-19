@@ -267,13 +267,37 @@ class DataRoot:
 
 
 def load_formula_table(path: Path | str) -> Any:
-    """Load either legacy `(neuron, formula, iou, ...)` or sweep CSV into a DataFrame."""
+    """Load either legacy `(neuron, formula, iou, ...)` or sweep CSV into a DataFrame.
+
+    For sweep CSVs without an `iou` column, select the highest-priority split
+    (`test`, `validation`, `fit`) that actually has examples (`*_n > 0`), so
+    all-example sweeps (`test_n == 0, validation_n == 0`) preserve their fit IoU
+    while genuine held-out splits (`test_n > 0`) still use `test_iou`.
+    """
     import pandas as pd
 
     frame = pd.read_csv(Path(path))
     if "iou" not in frame.columns:
-        for candidate in ("test_iou", "validation_iou", "fit_iou", "backend_fit_iou"):
-            if candidate in frame.columns:
-                frame["iou"] = pd.to_numeric(frame[candidate], errors="coerce").fillna(0.0)
-                break
+        selected = False
+        for split_name in ("test", "validation", "fit"):
+            iou_col = f"{split_name}_iou"
+            if iou_col not in frame.columns:
+                continue
+            n_col = f"{split_name}_n"
+            if n_col in frame.columns:
+                has_examples = bool(
+                    (pd.to_numeric(frame[n_col], errors="coerce").fillna(0) > 0).any()
+                )
+                if not has_examples:
+                    continue
+            else:
+                if not bool(pd.to_numeric(frame[iou_col], errors="coerce").notna().any()):
+                    continue
+            frame["iou"] = pd.to_numeric(frame[iou_col], errors="coerce").fillna(0.0)
+            selected = True
+            break
+        if not selected and "backend_fit_iou" in frame.columns:
+            frame["iou"] = pd.to_numeric(
+                frame["backend_fit_iou"], errors="coerce"
+            ).fillna(0.0)
     return frame

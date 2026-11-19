@@ -36,6 +36,10 @@ class FormulaSearchOptions:
     neuron_batch_size: int = 1
     device: str = "cuda"
     formulas_csv: Path | None = None
+    activation_path: Path | None = None
+    checkpoint_name: str | None = None
+    alpha: float | None = None
+    min_acts: int | None = None
 
 
 def add_cli_arguments(parser: argparse.ArgumentParser) -> None:
@@ -118,6 +122,29 @@ def add_cli_arguments(parser: argparse.ArgumentParser) -> None:
         default=None,
         help="Existing formula CSV input for the opt-in attach_weights stage.",
     )
+    parser.add_argument(
+        "--activation-path",
+        type=Path,
+        default=None,
+        help="Explicit raw .pt capture path for the opt-in general stage.",
+    )
+    parser.add_argument(
+        "--checkpoint-name",
+        default=None,
+        help="LoRA checkpoint directory name for the opt-in general stage.",
+    )
+    parser.add_argument(
+        "--alpha",
+        type=float,
+        default=None,
+        help="Override top-tail activation fraction for the opt-in general stage.",
+    )
+    parser.add_argument(
+        "--min-acts",
+        type=int,
+        default=None,
+        help="Override minimum active examples for pruning in the opt-in general stage.",
+    )
 
 
 def options_from_args(args: argparse.Namespace) -> FormulaSearchOptions:
@@ -150,6 +177,10 @@ def options_from_args(args: argparse.Namespace) -> FormulaSearchOptions:
         neuron_batch_size=args.neuron_batch_size,
         device=args.device,
         formulas_csv=args.formulas_csv,
+        activation_path=args.activation_path,
+        checkpoint_name=args.checkpoint_name,
+        alpha=args.alpha,
+        min_acts=args.min_acts,
     )
 
 
@@ -249,4 +280,99 @@ def run(
             attach_classification_weights(profile, search_csv_path, weighted_csv)
         artifacts["weighted_formulas_csv"] = weighted_csv
 
+    if "general" in stages:
+        from formula_search import analysis as general_analysis
+
+        task_name = profile.model.lora_task or profile.dataset.name
+        checkpoint_name = opts.checkpoint_name or profile.model.checkpoint_name
+        module_layer = str(profile.model.resolve_module_path(opts.layer))
+        act_path = opts.activation_path or workspace.data_root.activation_path(
+            profile.model.model_id,
+            profile.dataset.name,
+            module_layer,
+            task_name=task_name,
+            checkpoint_name=checkpoint_name,
+        )
+        general_backend = opts.backend or "search"
+        search_fn, search_kwargs = _resolve_general_backend(
+            general_backend,
+            beam=opts.beam,
+            length=opts.length,
+            neuron_batch_size=opts.neuron_batch_size,
+            device=opts.device,
+        )
+        general_csv = workspace.output_dir / f"{task_name}_beam_results.csv"
+        metrics = {
+            "layer": module_layer,
+            "backend": general_backend,
+            "alpha": opts.alpha if opts.alpha is not None else profile.search.alpha,
+            "min_acts": opts.min_acts if opts.min_acts is not None else profile.search.min_acts,
+        }
+        with workspace.stage("general", metrics_out=metrics):
+            general_analysis.run(
+                task_name,
+                act_path,
+                search_fn=search_fn,
+                output_path=general_csv,
+                model_id=profile.model.model_id,
+                lora_repository=profile.model.lora_repo
+                or general_analysis.DEFAULT_LORA_REPOSITORY,
+                alpha=opts.alpha if opts.alpha is not None else profile.search.alpha,
+                min_acts=opts.min_acts if opts.min_acts is not None else profile.search.min_acts,
+                checkpoint_name=checkpoint_name,
+                dataset_path=opts.dataset_path,
+                data_root=workspace.data_root,
+                **search_kwargs,
+            )
+        artifacts["general_formulas_csv"] = general_csv
+
     return artifacts
+
+
+def _resolve_general_backend(
+    backend: str,
+    *,
+    beam: int | None,
+    length: int | None,
+    neuron_batch_size: int,
+    device: str,
+) -> tuple[Any, dict[str, Any]]:
+    search_kwargs: dict[str, Any] = {"device": device}
+    if backend == "search":
+        from formula_search.search.algorithm import SearchConfig, search_all
+
+        cfg_kwargs: dict[str, Any] = {}
+        if beam is not None:
+            cfg_kwargs["beam_size"] = beam
+        if length is not None:
+            cfg_kwargs["maximum_formula_length"] = length
+        if cfg_kwargs:
+            search_kwargs["config"] = SearchConfig(**cfg_kwargs)
+        return search_all, search_kwargs
+    if backend == "new_search":
+        from formula_search.new_search.algorithm import SearchConfig, search_all
+
+        cfg_kwargs = {}
+        if beam is not None:
+            cfg_kwargs["beam_size"] = beam
+        if length is not None:
+            cfg_kwargs["maximum_formula_length"] = length
+        if neuron_batch_size != 1:
+            cfg_kwargs["neuron_batch_size"] = neuron_batch_size
+        if cfg_kwargs:
+            search_kwargs["config"] = SearchConfig(**cfg_kwargs)
+        return search_all, search_kwargs
+    if backend == "vectorized_search_2a":
+        from formula_search.verify_2a import load_verified_2a
+
+        verified = load_verified_2a(require_runtime=True)
+        assert verified.search_all is not None and verified.search_config is not None
+        cfg_kwargs = {}
+        if beam is not None:
+            cfg_kwargs["beam_size"] = beam
+        if length is not None:
+            cfg_kwargs["maximum_formula_length"] = length
+        if cfg_kwargs:
+            search_kwargs["config"] = verified.search_config(**cfg_kwargs)
+        return verified.search_all, search_kwargs
+    raise ValueError(f"Unsupported general formula_search backend: {backend!r}")

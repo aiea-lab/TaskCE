@@ -157,6 +157,12 @@ ANALYSES: Mapping[AnalysisName, AnalysisSpec] = {
                 ResourceFlags.HF_MODEL,
                 default=False,
             ),
+            StageSpec(
+                "general",
+                "Run general compositional analysis over raw .pt captures with LoRA class weights",
+                ResourceFlags.CUDA | ResourceFlags.HF_MODEL | ResourceFlags.HF_DATASET,
+                default=False,
+            ),
         ),
     ),
     "formula_comparison": AnalysisSpec(

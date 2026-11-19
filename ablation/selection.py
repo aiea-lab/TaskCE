@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from taskce.data import load_formula_table
+
 
 SEARCH_RESULT_COLUMNS = [
     "neuron",
@@ -43,7 +45,7 @@ def run_ablation_analysis(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Stage 1: load the search result CSV produced after feature search.
-    search_results = pd.read_csv(result_csv_path)
+    search_results = load_formula_table(result_csv_path)
     missing_columns = [
         column for column in SEARCH_RESULT_COLUMNS if column not in search_results.columns
     ]
