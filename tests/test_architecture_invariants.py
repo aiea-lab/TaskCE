@@ -14,7 +14,7 @@ import pytest
 
 from formula_search.verify_2a import load_verified_2a
 from taskce.data import DataRoot
-from taskce.executor import ANALYSES
+from taskce.executor import ANALYSES, doctor, execute
 from taskce.profiles import load_profile
 from taskce.runtime import (
     ALLOWED_PACKAGE_IMPORTS,
@@ -22,6 +22,7 @@ from taskce.runtime import (
     PINNED_2A_MODULE_KEYS,
     PINNED_FORMULA_EVAL_SHA256,
     PINNED_SNLI_JOINT_MANIFEST_SHA256,
+    RunId,
     RunWorkspace,
     sha256_file,
 )
@@ -301,3 +302,169 @@ def test_notebooks_import_flattened_packages() -> None:
     assert "from ablation.analysis import" in notebook_source(
         repo_root() / "ablation" / "notebook.ipynb"
     )
+
+
+def test_check_only_rejects_resource_stages_and_empty_default_stages(
+    tmp_path: Path,
+) -> None:
+    root = DataRoot(data_dir=tmp_path)
+    with pytest.raises(ValueError, match="cannot run resource-requiring stage"):
+        execute(
+            "joint_search",
+            profile="snli",
+            data_root=root,
+            stages=("sweep",),
+            check_only=True,
+        )
+    with pytest.raises(ValueError, match="no read-only default stages"):
+        execute(
+            "capture",
+            profile="snli",
+            data_root=root,
+            check_only=True,
+        )
+    assert not (tmp_path / "runs").exists()
+
+
+def test_resume_check_only_preserves_completed_run_and_rejects_bad_run_id(
+    tmp_path: Path,
+) -> None:
+    root = DataRoot(data_dir=tmp_path)
+    snli = load_profile("snli")
+
+    ws = RunWorkspace.open(
+        analysis="joint_search",
+        profile=snli,
+        data_root=root,
+        requested_stages=("validate", "sweep"),
+    )
+    ws.finalize("complete")
+
+    with pytest.raises(ValueError, match="completed run"):
+        RunWorkspace.open(
+            analysis="joint_search",
+            profile=snli,
+            data_root=root,
+            requested_stages=("validate",),
+            run_id=ws.run_id,
+            resume=True,
+            check_only=True,
+        )
+    meta = json.loads(ws.meta_path.read_text(encoding="utf-8"))
+    assert meta["status"] == "complete"
+    assert root.latest_completed_run("joint_search", "snli") == ws.output_dir
+
+    with pytest.raises(ValueError, match="Invalid run_id"):
+        RunWorkspace.open(
+            analysis="joint_search",
+            profile=snli,
+            data_root=root,
+            requested_stages=("validate",),
+            run_id=RunId("../escape"),
+        )
+
+
+def test_data_dir_override_preserves_profile_baseline_commit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("TASKCE_BASELINE_DIR", raising=False)
+    data_dir = tmp_path / "data"
+    profiles_dir = data_dir / "profiles"
+    profiles_dir.mkdir(parents=True)
+    custom_baseline = tmp_path / "baselines" / "deadbeef"
+    custom_baseline.mkdir(parents=True)
+    (profiles_dir / "custom.toml").write_text(
+        'name = "custom"\n'
+        'extends = "snli"\n\n'
+        "[artifacts]\n"
+        'baseline_commit = "deadbeef"\n',
+        encoding="utf-8",
+    )
+
+    checks = {item.name: item for item in doctor(profile="custom", data_dir=data_dir)}
+    assert checks["baseline_dir"].ok
+    assert Path(checks["baseline_dir"].detail) == custom_baseline
+
+
+def test_runners_isolate_default_outputs_inside_run_workspace(tmp_path: Path) -> None:
+    from ablation.runner import AblationRunnerOptions
+    from formula_comparison.runner import FormulaComparisonOptions
+
+    data_dir = tmp_path / "data"
+    formula_csv = data_dir / "compositional_explanations" / "snli_beam_results.csv"
+    formula_csv.parent.mkdir(parents=True)
+    formula_csv.write_text(
+        "neuron,formula,iou,weight_entailment,weight_neutral,weight_contradiction\n"
+        "0,(premise:cat AND hypothesis:dog),0.75,0.5,-0.1,0.2\n"
+        "1,(NOT hypothesis:dog),0.20,-0.4,0.3,0.1\n",
+        encoding="utf-8",
+    )
+
+    ablation_result = execute(
+        "ablation",
+        profile="snli",
+        data_dir=data_dir,
+        options=AblationRunnerOptions(),
+        stages=("select",),
+    )
+    assert ablation_result.status == "complete"
+    assert (ablation_result.output_dir / "ablation_analysis_report.txt").is_file()
+    assert not (data_dir / "ablation_analysis_report.txt").exists()
+
+    cmp_result = execute(
+        "formula_comparison",
+        profile="snli",
+        data_dir=data_dir,
+        options=FormulaComparisonOptions(csv_paths=(formula_csv,)),
+        stages=("ast_viewer",),
+    )
+    assert cmp_result.status == "complete"
+    assert (cmp_result.output_dir / "formula_ast_viewer.html").is_file()
+
+
+def test_task_separation_supports_custom_profile_via_data_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import numpy as np
+    import torch
+
+    from activation_analysis import task_separation
+
+    data_dir = tmp_path / "data"
+    profiles_dir = data_dir / "profiles"
+    inputs_dir = data_dir / "inputs"
+    profiles_dir.mkdir(parents=True)
+    inputs_dir.mkdir(parents=True)
+    (profiles_dir / "bowman.toml").write_text(
+        'name = "bowman"\n'
+        'extends = "snli"\n\n'
+        "[model]\n"
+        'lora_task = "bowman"\n\n'
+        "[dataset]\n"
+        'name = "bowman"\n',
+        encoding="utf-8",
+    )
+    np.savez(
+        inputs_dir / "features.npz",
+        vectors=np.zeros((2, 4), dtype=bool),
+        names=np.array(["a", "b"]),
+        split=np.array([0, 0, 1, 2]),
+        labels=np.array([0, 1, 2, 0]),
+    )
+    act_path = tmp_path / "bowman_activation.pt"
+    torch.save(torch.arange(12, dtype=torch.float32).reshape(4, 3), act_path)
+
+    captured: dict[str, object] = {}
+
+    def fake_analyze(states, labels):
+        captured["shape"] = tuple(states.shape)
+        captured["labels"] = list(labels)
+        return {"labels": list(labels), "shape": tuple(states.shape)}
+
+    monkeypatch.setattr(task_separation, "analyze_task_separation", fake_analyze)
+
+    root = DataRoot(data_dir=data_dir)
+    profile = load_profile("bowman", data_root=root)
+    result = task_separation.run("bowman", act_path, profile=profile, data_root=root)
+    assert result["labels"] == ["entailment", "neutral", "contradiction", "entailment"]
+    assert result["shape"] == (4, 3)
