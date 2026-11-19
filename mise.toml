@@ -12,12 +12,12 @@ run = "uv sync --python 3.12"
 
 # [tasks.generate]
 # description = "Capture activations from the configured base model and LoRA checkpoints"
-# run = "uv run --no-sync python experimental/generate.py"
+# run = "uv run --no-sync taskce capture"
 
 # [tasks."formula-diff"]
 # description = "Generate formula-diff CSVs and heatmaps (accepts --layer and --task)"
-# run = "uv run --no-sync python -m theoretical.compositional_explanations.formula_diff.analysis"
+# run = "uv run --no-sync python -m formula_comparison.formula_diff.analysis"
 
 # [tasks."formula-viewer"]
 # description = "Render the formula-diff HTML viewer (accepts --formula-diff-dir and --output)"
-# run = "uv run --no-sync python -m theoretical.compositional_explanations.formula_diff.viewer"
+# run = "uv run --no-sync python -m formula_comparison.formula_diff.viewer"

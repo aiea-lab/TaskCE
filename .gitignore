@@ -6,6 +6,3 @@ deploy
 *.egg-info
 unsloth_compiled_cache
 data/
-/experiments/joint-search/results/
-/experiments/cross-layer-recurrence/results/
-/experiments/presented-visualizations/
