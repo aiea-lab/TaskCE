@@ -18,6 +18,7 @@ from taskce.runtime import RunWorkspace
 class CaptureOptions:
     batch_size: int = 32
     layers: tuple[str, ...] | None = None
+    device: str = "cpu"
 
 
 def add_cli_arguments(parser: argparse.ArgumentParser) -> None:
@@ -32,11 +33,17 @@ def add_cli_arguments(parser: argparse.ArgumentParser) -> None:
         default=None,
         help="Comma-separated module layer names; defaults to the profile layers.",
     )
+    parser.add_argument(
+        "--device",
+        choices=("cpu", "cuda"),
+        default="cpu",
+        help="PyTorch device for Bowman capture (default: %(default)s).",
+    )
 
 
 def options_from_args(args: argparse.Namespace) -> CaptureOptions:
     layers = tuple(args.layers.split(",")) if args.layers else None
-    return CaptureOptions(batch_size=args.batch_size, layers=layers)
+    return CaptureOptions(batch_size=args.batch_size, layers=layers, device=args.device)
 
 
 def run(
@@ -50,6 +57,12 @@ def run(
     artifacts: dict[str, Path] = {}
     for stage in stages:
         with workspace.stage(stage):
+            if (
+                profile.model.model_id == "bowman/snli-lstm"
+                and stage == "base"
+                and "finetuned" in stages
+            ):
+                continue
             variant = _stage_variant(profile, stage)
             for key, path in _capture_variant(workspace, profile, opts, variant).items():
                 artifacts[f"{stage}_{key}"] = path
@@ -72,16 +85,35 @@ def _capture_variant(
     opts: CaptureOptions,
     variant: str | None,
 ) -> dict[str, Path]:
+    data_root = workspace.data_root
+    layers = opts.layers or tuple(str(layer) for layer in profile.model.layers)
+    if not layers:
+        raise ValueError("Profile defines no layers to capture")
+
+    if profile.model.model_id == "bowman/snli-lstm":
+        from bowman_repro import capture_activations
+        from taskce.hf import load_hf_dataset
+
+        checkpoint_name = profile.model.checkpoint_name if variant is not None else None
+        activations_by_layer = capture_activations(
+            load_hf_dataset(profile.dataset),
+            layers=layers,
+            batch_size=opts.batch_size,
+            device=opts.device,
+        )
+        return _save_layer_activations(
+            data_root,
+            profile,
+            activations_by_layer,
+            variant=variant,
+            checkpoint_name=checkpoint_name,
+        )
+
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     from capture.capture import capture
     from capture.prepare import prepare_dataset
-
-    data_root = workspace.data_root
-    layers = opts.layers or tuple(str(layer) for layer in profile.model.layers)
-    if not layers:
-        raise ValueError("Profile defines no layers to capture")
 
     tokenizer = AutoTokenizer.from_pretrained(profile.model.model_id)
     if not tokenizer.pad_token:
@@ -123,9 +155,27 @@ def _capture_variant(
                     invocations[0][:, -1].clone()
                 )
 
+    return _save_layer_activations(
+        data_root,
+        profile,
+        {layer: torch.cat(chunks) for layer, chunks in final_tokens.items()},
+        variant=variant,
+        checkpoint_name=checkpoint_name,
+    )
+
+
+def _save_layer_activations(
+    data_root: Any,
+    profile: Profile,
+    activations_by_layer: Mapping[str, Any],
+    *,
+    variant: str | None,
+    checkpoint_name: str | None,
+) -> dict[str, Path]:
+    import torch
+
     artifacts: dict[str, Path] = {}
-    for layer, chunks in final_tokens.items():
-        activations = torch.cat(chunks)
+    for layer, activations in activations_by_layer.items():
         output_path = data_root.capture_output_path(
             profile.model.model_id,
             profile.dataset.name,

@@ -1,73 +1,20 @@
 """Run SNLI validation inference with the original Bowman checkpoint."""
 
-import spacy
+from datasets import load_dataset
 import torch
 
-from .model import BowmanEntailmentClassifier
-
-import hashlib
-from pathlib import Path
-from shutil import copyfileobj
-from tempfile import NamedTemporaryFile, gettempdir
-from urllib.request import urlopen
-from datasets import load_dataset
-
-URL = "https://downloads.cs.stanford.edu/nlp/data/muj/bowman_snli/6.pth"
-SHA256 = "a0408617c50f2f75af0a3f7be320082d642eb1f3e3ec9eff14f50159bdee2cb1"
-
-
-def checksum(path: Path) -> str:
-    with path.open("rb") as source:
-        return hashlib.file_digest(source, "sha256").hexdigest()
-
-
-def download_checkpoint() -> Path:
-    path = Path(gettempdir()) / "bowman_snli" / "6.pth"
-    if path.is_file() and checksum(path) == SHA256:
-        return path
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with NamedTemporaryFile(dir=path.parent, delete=False) as partial:
-        temporary_path = Path(partial.name)
-    try:
-        with urlopen(URL, timeout=60) as response, temporary_path.open("wb") as output:
-            copyfileobj(response, output)
-        if checksum(temporary_path) != SHA256:
-            raise ValueError(
-                "Stanford checkpoint did not match the expected SHA-256 digest"
-            )
-        temporary_path.replace(path)
-    finally:
-        temporary_path.unlink(missing_ok=True)
-    return path
-
-
-LABELS = ["entailment", "neutral", "contradiction"]
-
-
-def tokenize(text, tokenizer, stoi):
-    ids = [stoi.get(token.lower_, stoi["UNK"]) for token in tokenizer(text)]
-    return torch.tensor(ids, dtype=torch.long).reshape(-1, 1), torch.tensor([len(ids)])
+from .api import LABELS, inference_precision, load_bowman
 
 
 def main(device: str = "cpu"):
-    if device == "cuda":
-        if not torch.cuda.is_available():
-            raise SystemExit("CUDA requested, but PyTorch cannot access a CUDA device.")
-        # Match the full FP32 precision of the CPU baseline.
-        torch.backends.cudnn.rnn.fp32_precision = "ieee"
-        torch.backends.cuda.matmul.fp32_precision = "ieee"
+    try:
+        bundle = load_bowman(device=device)
+    except RuntimeError as exc:
+        raise SystemExit(str(exc)) from exc
 
+    target_device = torch.device(device)
     snli = load_dataset("stanfordnlp/snli", split="validation").to_pandas()
-    checkpoint = torch.load(
-        download_checkpoint(), map_location="cpu", weights_only=True
-    )
-    stoi = checkpoint["stoi"]
-    model = BowmanEntailmentClassifier(len(stoi))
-    model.load_state_dict(checkpoint["state_dict"])
-    model.to(device).eval()
-    tokenizer = spacy.load("en_core_web_sm").tokenizer
-    with torch.inference_mode():
+    with inference_precision(target_device), torch.inference_mode():
         for premise, hypothesis, label in snli[
             ["premise", "hypothesis", "label"]
         ].to_numpy():
@@ -75,13 +22,13 @@ def main(device: str = "cpu"):
                 print(premise, hypothesis, "is unlabeled")
                 continue
 
-            premise_ids, premise_length = tokenize(premise, tokenizer, stoi)
-            hypothesis_ids, hypothesis_length = tokenize(hypothesis, tokenizer, stoi)
-            logits = model(
-                premise_ids.to(device),
-                premise_length,
-                hypothesis_ids.to(device),
-                hypothesis_length,
+            encoded = bundle.tokenizer.encode_pair(premise, hypothesis)
+            batch = bundle.tokenizer.pad({"input_ids": [encoded]})
+            logits = bundle.model(
+                premise=batch["premise"].to(target_device),
+                premise_lengths=batch["premise_lengths"],
+                hypothesis=batch["hypothesis"].to(target_device),
+                hypothesis_lengths=batch["hypothesis_lengths"],
             )
             prediction = LABELS[logits.argmax(dim=1).item()]
             print(f"Premise: {premise}\nHypothesis: {hypothesis}")

@@ -1,0 +1,37 @@
+name = "bowman"
+description = "Bowman SNLI LSTM classifier (Stanford 6.pth)"
+
+[model]
+model_id = "bowman/snli-lstm"
+lora_task = "snli"
+checkpoint_name = "checkpoint-6"
+layers = ["mlp.1"]
+
+[model.layer_aliases]
+"layer.8" = "mlp.1"
+"mlp.1" = "mlp.1"
+"bn" = "bn"
+"encoder" = "encoder"
+
+[dataset]
+name = "snli"
+hf_id = "stanfordnlp/snli"
+split = "validation"
+feature_columns = ["premise", "hypothesis"]
+label_column = "label"
+labels = ["entailment", "neutral", "contradiction"]
+tokenizer_name = "spacy-pos-snli-features"
+tokenizer_uses_pos = false
+
+[search]
+alpha = 0.055
+min_acts = 500
+beam = 40
+length = 48
+max_iterations = 48
+seed = 20261111
+backend = "vectorized_search_2a"
+
+[artifacts]
+prepared_inputs_relpaths = ["bowman/inputs", "nautilus-1111/inputs", "inputs"]
+recurrence_layers = ["mlp.1", "bn", "encoder"]

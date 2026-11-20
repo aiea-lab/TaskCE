@@ -67,6 +67,8 @@ Every analysis runs through `uv run taskce <analysis> --profile <profile>`. Each
 Run Bowman inference on the SNLI validation split with `uv run taskce bowman-repro`. The command prints the predictions and skips rows without a gold label.
 Add `--device cuda` to run inference with CUDA-enabled PyTorch. On a Jetson with a prepared virtual environment, use `uv run --no-sync taskce bowman-repro --device cuda`.
 
+Run `uv run taskce capture --profile bowman` to save the 1,024 post-ReLU activations per pair to `$TASKCE_DATA_DIR/bowman/snli-lstm/snli/checkpoint-6/mlp.1/snli_activation.pt`. Capture preserves all validation rows in dataset order, including pairs without a gold label. Add `--device cuda` to capture on the GPU.
+
 ### Reproduce the SNLI joint-search baseline
 
 On a GPU pod with the `ggong1-dev-main` PVC mounted at `/~ /`:
@@ -106,24 +108,21 @@ uv run taskce ablation --profile snli --formula-path path/to/snli_beam_results.c
 
 ### Add a new study profile
 
-Built-in TOML profiles live in [`taskce/profiles/`](taskce/profiles/) (`snli`, `claim`, `fallacy`). To add a new study such as `bowman`, place `bowman.toml` in `$TASKCE_DATA_DIR/profiles/bowman.toml` or pass `--profile ./bowman.toml`. Profiles support single-level inheritance with `extends`:
+Built-in TOML profiles live in [`taskce/profiles/`](taskce/profiles/) (`snli`, `claim`, `fallacy`, and `bowman` for capture). For a custom study, place its TOML in `$TASKCE_DATA_DIR/profiles/` or pass the file path to `--profile`. Profiles support single-level inheritance with `extends`:
 
 ```toml
-name = "bowman"
-description = "Bowman CoEx single-neuron and joint-search study"
+name = "custom-snli"
+description = "SNLI with a custom LoRA adapter and feature tokenizer"
 extends = "snli"
 
 [model]
-lora_task = "bowman"
+lora_task = "custom-snli"
 
 [dataset]
-name = "bowman"
-hf_id = "stanfordnlp/snli"
-split = "validation"
-tokenizer_name = "spacy-pos-bowman-features"
+tokenizer_name = "spacy-custom-snli-features"
 
 [artifacts]
-prepared_inputs_relpaths = ["bowman/inputs"]
+prepared_inputs_relpaths = ["custom-snli/inputs"]
 ```
 
 Newly trained feature tokenizers save to `$TASKCE_DATA_DIR/tokenizers/` so the repository checkout stays clean.
