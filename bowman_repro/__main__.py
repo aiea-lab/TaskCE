@@ -67,7 +67,10 @@ def main():
         for premise, hypothesis, label in snli[
             ["premise", "hypothesis", "label"]
         ].to_numpy():
-            assert 0 <= label <= 2
+            if label == -1:
+                print(premise, hypothesis, "is unlabeled")
+                continue
+
             premise_ids, premise_length = tokenize(premise, tokenizer, stoi)
             hypothesis_ids, hypothesis_length = tokenize(hypothesis, tokenizer, stoi)
             logits = model(
