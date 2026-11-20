@@ -1,4 +1,4 @@
-"""Run two SNLI development examples with the original Bowman checkpoint."""
+"""Run SNLI validation inference with the original Bowman checkpoint."""
 
 import spacy
 import torch
@@ -43,10 +43,6 @@ def download_checkpoint() -> Path:
 
 
 LABELS = ["entailment", "neutral", "contradiction"]
-snli = load_dataset("stanfordnlp/snli", split="validation").to_pandas()
-
-
-# SNLI dev pair IDs 4705552913.jpg#2r1e and 4705552913.jpg#2r1c.
 
 
 def tokenize(text, tokenizer, stoi):
@@ -54,14 +50,22 @@ def tokenize(text, tokenizer, stoi):
     return torch.tensor(ids, dtype=torch.long).reshape(-1, 1), torch.tensor([len(ids)])
 
 
-def main():
+def main(device: str = "cpu"):
+    if device == "cuda":
+        if not torch.cuda.is_available():
+            raise SystemExit("CUDA requested, but PyTorch cannot access a CUDA device.")
+        # Match the full FP32 precision of the CPU baseline.
+        torch.backends.cudnn.rnn.fp32_precision = "ieee"
+        torch.backends.cuda.matmul.fp32_precision = "ieee"
+
+    snli = load_dataset("stanfordnlp/snli", split="validation").to_pandas()
     checkpoint = torch.load(
         download_checkpoint(), map_location="cpu", weights_only=True
     )
     stoi = checkpoint["stoi"]
     model = BowmanEntailmentClassifier(len(stoi))
     model.load_state_dict(checkpoint["state_dict"])
-    model.eval()
+    model.to(device).eval()
     tokenizer = spacy.load("en_core_web_sm").tokenizer
     with torch.inference_mode():
         for premise, hypothesis, label in snli[
@@ -74,7 +78,10 @@ def main():
             premise_ids, premise_length = tokenize(premise, tokenizer, stoi)
             hypothesis_ids, hypothesis_length = tokenize(hypothesis, tokenizer, stoi)
             logits = model(
-                premise_ids, premise_length, hypothesis_ids, hypothesis_length
+                premise_ids.to(device),
+                premise_length,
+                hypothesis_ids.to(device),
+                hypothesis_length,
             )
             prediction = LABELS[logits.argmax(dim=1).item()]
             print(f"Premise: {premise}\nHypothesis: {hypothesis}")

@@ -65,6 +65,7 @@ uv run taskce doctor --profile snli
 Every analysis runs through `uv run taskce <analysis> --profile <profile>`. Each fresh run writes into an isolated `<TASKCE_DATA_DIR>/runs/<analysis>/<profile>/<run_id>/` directory with atomic checkpoints and per-stage wall-clock timing in `run_meta.json`.
 
 Run Bowman inference on the SNLI validation split with `uv run taskce bowman-repro`. The command prints the predictions and skips rows without a gold label.
+Add `--device cuda` to run inference with CUDA-enabled PyTorch. On a Jetson with a prepared virtual environment, use `uv run --no-sync taskce bowman-repro --device cuda`.
 
 ### Reproduce the SNLI joint-search baseline
 

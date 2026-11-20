@@ -116,10 +116,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Emit machine-readable JSON.",
     )
 
-    subparsers.add_parser(
+    bowman_parser = subparsers.add_parser(
         "bowman-repro",
         aliases=["bowman_repro"],
         help="Run Bowman inference on the SNLI validation split.",
+    )
+    bowman_parser.add_argument(
+        "--device",
+        choices=("cpu", "cuda"),
+        default="cpu",
+        help="PyTorch device for Bowman inference (default: %(default)s).",
     )
 
     for spec in ANALYSES.values():
@@ -208,7 +214,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command in ("bowman-repro", "bowman_repro"):
         from bowman_repro.__main__ import main as run_bowman
 
-        run_bowman()
+        run_bowman(device=args.device)
         return 0
 
     analysis_name = args._analysis
