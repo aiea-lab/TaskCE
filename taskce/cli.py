@@ -84,7 +84,7 @@ def _try_register_runner_args(
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Build unified CLI with subcommands: `list`, `doctor`, and all 8 analyses."""
+    """Build the CLI for analysis runs, Bowman inference, and environment checks."""
     parser = argparse.ArgumentParser(
         prog="taskce",
         description="Unified TaskCE CLI executor for compositional neuron analyses.",
@@ -114,6 +114,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         dest="as_json",
         help="Emit machine-readable JSON.",
+    )
+
+    subparsers.add_parser(
+        "bowman-repro",
+        aliases=["bowman_repro"],
+        help="Run Bowman inference on the SNLI validation split.",
     )
 
     for spec in ANALYSES.values():
@@ -199,6 +205,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _cmd_list(args.as_json)
     if args.command == "doctor":
         return _cmd_doctor(args)
+    if args.command in ("bowman-repro", "bowman_repro"):
+        from bowman_repro.__main__ import main as run_bowman
+
+        run_bowman()
+        return 0
 
     analysis_name = args._analysis
     spec = ANALYSES[analysis_name]
