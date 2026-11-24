@@ -249,6 +249,7 @@ def fit_self_formula(
     readout_width: int,
     mask_mode: str,
     layout_seed: int | None = None,
+    learning_rate: float = 0.01,
 ) -> SelfFormulaResult:
     """Train on completed formula IoUs, then follow one deterministic attention path."""
     vectors = bool_vectors(vectors)
@@ -259,6 +260,8 @@ def fit_self_formula(
         raise ValueError("names must match a nonempty concept-by-example matrix")
     if steps < 0 or encoder_width < 1 or readout_width < 1:
         raise ValueError("invalid training budget or model width")
+    if not math.isfinite(learning_rate) or learning_rate <= 0:
+        raise ValueError("learning_rate must be finite and positive")
     if mask_mode not in ("causal", "bidirectional"):
         raise ValueError("mask_mode must be causal or bidirectional")
     fit_device = torch.device(device)
@@ -274,7 +277,7 @@ def fit_self_formula(
     model = _SelfPolicy(target.size, len(names), encoder_width, readout_width, seed).to(
         fit_device
     )
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
     rng = np.random.default_rng(seed)
     reward = _TerminalIoU(vectors, target)
     causal = mask_mode == "causal"

@@ -45,6 +45,7 @@ class FormulaSearchOptions:
     layout_seed: int | None = None
     encoder_width: int = 96
     readout_width: int = 32
+    learning_rate: float = 0.01
 
 
 def add_cli_arguments(parser: argparse.ArgumentParser) -> None:
@@ -120,6 +121,7 @@ def add_cli_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--layout-seed", type=int, default=None)
     parser.add_argument("--encoder-width", type=int, default=96)
     parser.add_argument("--readout-width", type=int, default=32)
+    parser.add_argument("--learning-rate", type=float, default=0.01, help="Adam learning rate for neural search.")
     parser.add_argument("--quantile", type=float, default=None)
     parser.add_argument("--min-fit-fraction", type=float, default=0.05)
     parser.add_argument("--all-examples", action="store_true",
@@ -186,6 +188,7 @@ def options_from_args(args: argparse.Namespace) -> FormulaSearchOptions:
         layout_seed=args.layout_seed,
         encoder_width=args.encoder_width,
         readout_width=args.readout_width,
+        learning_rate=args.learning_rate,
         quantile=args.quantile,
         min_fit_fraction=args.min_fit_fraction,
         all_examples=bool(args.all_examples),
@@ -285,6 +288,7 @@ def run(
                 layout_seed=opts.layout_seed,
                 encoder_width=opts.encoder_width,
                 readout_width=opts.readout_width,
+                learning_rate=opts.learning_rate,
                 chunk_size=opts.chunk_size,
                 max_chunks=opts.max_chunks,
                 neuron_batch_size=opts.neuron_batch_size,

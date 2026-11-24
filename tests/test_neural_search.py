@@ -110,6 +110,32 @@ def test_fit_ignores_heldout_and_resets_for_each_neuron(tmp_path):
         np.testing.assert_array_equal(x["table"], y["table"])
 
 
+@pytest.mark.parametrize("mode", ["cross", "causal", "bidirectional"])
+def test_learning_rate_changes_training_and_resume_identity(tmp_path, mode):
+    _inputs(tmp_path)
+    first = tmp_path / "default" / "embedding_norm.csv"
+    other = tmp_path / "tuned" / "embedding_norm.csv"
+    args = ("--ids", "0", "--attention-mode", mode)
+    _run(tmp_path, first, *args)
+    _run(tmp_path, first, *args, "--learning-rate", "0.01", "--resume")
+    _run(tmp_path, other, *args, "--learning-rate", "0.003")
+    manifest = json.loads(other.with_suffix(".csv.manifest.json").read_text())
+    assert manifest["configuration"]["learning_rate"] == 0.003
+    (base,) = _rows(first)
+    (tuned,) = _rows(other)
+    with np.load(first.parent / base["neural_table_path"]) as a, np.load(other.parent / tuned["neural_table_path"]) as b:
+        assert not np.array_equal(a["table"], b["table"])
+    with pytest.raises(ValueError, match="configuration"):
+        _run(tmp_path, other, *args, "--resume")
+
+
+@pytest.mark.parametrize("rate", ["0", "-0.1", "nan", "inf"])
+def test_cli_rejects_invalid_learning_rates(tmp_path, rate):
+    _inputs(tmp_path)
+    with pytest.raises(ValueError, match="learning_rate"):
+        _run(tmp_path, tmp_path / "run" / "embedding_norm.csv", "--learning-rate", rate)
+
+
 def test_pair_without_positives_reports_zero_iou(tmp_path):
     _inputs(tmp_path)
     activation_path = tmp_path / "embedding_norm.npz"

@@ -237,6 +237,7 @@ def fit_formula(
     device: str,
     encoder_width: int = 96,
     readout_width: int = 32,
+    learning_rate: float = 0.01,
 ) -> AttentionFormulaResult:
     """Train one neuron from exact terminal rewards, then decode the final table."""
     vectors = bool_vectors(vectors)
@@ -249,6 +250,8 @@ def fit_formula(
         raise ValueError(
             "steps must be nonnegative and encoder and readout widths must be positive"
         )
+    if not math.isfinite(learning_rate) or learning_rate <= 0:
+        raise ValueError("learning_rate must be finite and positive")
 
     fit_device = torch.device(device)
     masks = _csr(vectors, fit_device)
@@ -264,7 +267,7 @@ def fit_formula(
     policy = _Policy(
         target.size, vectors.shape[0], encoder_width, readout_width, seed
     ).to(fit_device)
-    optimizer = torch.optim.Adam(policy.parameters(), lr=0.01)
+    optimizer = torch.optim.Adam(policy.parameters(), lr=learning_rate)
     rng = np.random.default_rng(seed)
     reward = _TerminalIoU(vectors, target)
     policy_inputs = masks, masks_transposed, concept_rate, concept_norm, neuron

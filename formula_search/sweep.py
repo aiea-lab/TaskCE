@@ -188,6 +188,7 @@ def run_sweep(
     layout_seed: int | None = None,
     encoder_width: int = 96,
     readout_width: int = 32,
+    learning_rate: float = 0.01,
     chunk_size: int = 32,
     max_chunks: int | None = None,
     neuron_batch_size: int = 1,
@@ -213,6 +214,8 @@ def run_sweep(
             raise ValueError("Neural backends require neuron_batch_size=1")
         if prefix_selection:
             raise ValueError("prefix_selection is only supported with new_search")
+        if not math.isfinite(learning_rate) or learning_rate <= 0:
+            raise ValueError("learning_rate must be finite and positive")
         positive_options.update(max_iterations=max_iterations, encoder_width=encoder_width, readout_width=readout_width)
     else:
         positive_options.update(beam=beam, length=length)
@@ -355,6 +358,9 @@ def run_sweep(
         config.update(backend=chosen_backend, max_iterations=max_iterations,
                       encoder_width=encoder_width, readout_width=readout_width,
                       attention_mode=attention_mode, layout_seed=layout_seed)
+        # An omitted rate in the original schema denotes the fixed Adam rate 0.01.
+        if learning_rate != 0.01:
+            config["learning_rate"] = learning_rate
     if all_examples:
         config.update(example_scope="all", example_count=len(split))
     config = json.loads(json.dumps(config))
@@ -494,7 +500,8 @@ def run_sweep(
             if neural:
                 if index in searchable:
                     common = dict(steps=max_iterations, seed=seed, device=device,
-                                  encoder_width=encoder_width, readout_width=readout_width)
+                                  encoder_width=encoder_width, readout_width=readout_width,
+                                  learning_rate=learning_rate)
                     if attention_mode == "cross":
                         fitted = neural_algorithm.fit_formula(fit_vectors, target[fit], names, **common)
                     else:
@@ -633,6 +640,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--layout-seed", type=int, default=None)
     parser.add_argument("--encoder-width", type=int, default=96)
     parser.add_argument("--readout-width", type=int, default=32)
+    parser.add_argument("--learning-rate", type=float, default=0.01, help="Adam learning rate for neural search.")
     parser.add_argument("--chunk-size", type=int, default=32)
     parser.add_argument("--max-chunks", type=int, default=None)
     parser.add_argument("--neuron-batch-size", type=int, default=1)
@@ -669,6 +677,7 @@ def main(argv: list[str] | None = None) -> None:
         layout_seed=args.layout_seed,
         encoder_width=args.encoder_width,
         readout_width=args.readout_width,
+        learning_rate=args.learning_rate,
         chunk_size=args.chunk_size,
         max_chunks=args.max_chunks,
         neuron_batch_size=args.neuron_batch_size,
