@@ -101,6 +101,16 @@ uv run taskce graph-analysis --profile snli --formula-path path/to/snli_beam_res
 uv run taskce ablation --profile snli --formula-path path/to/snli_beam_results.csv
 ```
 
+### Search the LLM's final embedding normalization with attention
+
+`neural_search` fits the final-token coordinates of `model.embedding_norm` one at a time. Run it against the same prepared SNLI features and activation capture used by the symbolic backends.
+
+```sh
+uv run taskce formula-search --profile snli --backend neural_search --layer embedding_norm --ids 0,1,2,3,4,5 --all-examples --chunk-size 1 --device cuda
+```
+
+The run directory contains `embedding_norm.csv`. With `--all-examples`, its `fit_iou` column reports the overlap across all 10,000 examples for each neuron. Follow the `attention_path` column to the concept weights and cutoff that reproduce its firing mask. See the [neural search method and replay example](formula_search/neural_search/README.md).
+
 ### Add a new study profile
 
 Built-in TOML profiles live in [`taskce/profiles/`](taskce/profiles/) (`snli`, `claim`, `fallacy`). To add a new study such as `bowman`, place `bowman.toml` in `$TASKCE_DATA_DIR/profiles/bowman.toml` or pass `--profile ./bowman.toml`. Profiles support single-level inheritance with `extends`:

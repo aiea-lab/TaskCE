@@ -1,4 +1,4 @@
-"""Fit compositional explanations over prepared NPZ inputs and score frozen formulas.
+"""Fit concept explanations over prepared NPZ inputs and score frozen predictors.
 
 Inputs: features.npz contains vectors[concept, example], names[concept], and
 split[example] (0=fit, 1=validation, 2=test). Activation NPZ contains the raw
@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 from contextlib import redirect_stdout
 import csv
+import hashlib
 import io
 import json
 import math
@@ -20,9 +21,9 @@ from typing import Any
 
 import numpy as np
 
-from formula_search.formula_eval import FormulaEvaluator
 from taskce.runtime import (
     SearchBackendName,
+    atomic_write_bytes,
     atomic_write_json,
     atomic_write_text,
     sha256_file,
@@ -44,6 +45,7 @@ FIELDS = (
     "length",
     "min_fit_support",
 )
+NEURAL_FIELDS = (*FIELDS, "attention_path", "attention_sha256")
 
 
 def score(target: np.ndarray, prediction: np.ndarray, split: np.ndarray) -> dict[str, Any]:
@@ -68,12 +70,18 @@ def score(target: np.ndarray, prediction: np.ndarray, split: np.ndarray) -> dict
     return result
 
 
-def persist_rows(path: Path, rows: list[dict[str, Any]]) -> None:
+def persist_rows(
+    path: Path, rows: list[dict[str, Any]], fields: tuple[str, ...] = FIELDS
+) -> None:
     buffer = io.StringIO()
-    writer = csv.DictWriter(buffer, fieldnames=FIELDS, lineterminator="\n")
+    writer = csv.DictWriter(buffer, fieldnames=fields, lineterminator="\n")
     writer.writeheader()
     writer.writerows(rows)
     atomic_write_text(path, buffer.getvalue())
+
+
+def _attention_path(output_path: Path, neuron: str) -> Path:
+    return Path(f"{output_path.stem}.attention") / f"{neuron}.npz"
 
 
 def run_sweep(
@@ -99,13 +107,23 @@ def run_sweep(
     all_examples: bool = False,
     prefix_selection: bool = False,
 ) -> Path:
-    """Run resumable chunked compositional formula search over prepared NPZ inputs."""
-    for key, val in (
-        ("beam", beam),
-        ("length", length),
-        ("chunk_size", chunk_size),
-        ("neuron_batch_size", neuron_batch_size),
-    ):
+    """Run resumable concept search over prepared NPZ inputs."""
+    chosen_backend = backend or os.environ.get("TASKCE_BACKEND") or "new_search"
+    pinned = chosen_backend == "vectorized_search_2a"
+    neural = chosen_backend == "neural_search"
+    positive_options = {
+        "chunk_size": chunk_size,
+        "neuron_batch_size": neuron_batch_size,
+    }
+    if neural:
+        if neuron_batch_size != 1:
+            raise ValueError("neural_search requires neuron_batch_size=1")
+        if prefix_selection:
+            raise ValueError("prefix_selection is only supported with new_search")
+        positive_options["max_iterations"] = max_iterations
+    else:
+        positive_options.update(beam=beam, length=length)
+    for key, val in positive_options.items():
         if val < 1:
             raise ValueError(f"{key} must be positive, got {val}")
     if max_chunks is not None and max_chunks < 1:
@@ -114,12 +132,15 @@ def run_sweep(
         raise ValueError("Invalid quantile or minimum fit fraction")
 
     import torch
-    from sympy import Symbol
 
-    chosen_backend = backend or os.environ.get("TASKCE_BACKEND") or "new_search"
-    pinned = chosen_backend == "vectorized_search_2a"
+    if neural:
+        from formula_search.neural_search import algorithm as neural_algorithm
 
-    if pinned:
+        backend_sha256: dict[str, str] = {
+            neural_algorithm.__name__: str(sha256_file(Path(neural_algorithm.__file__)))
+        }
+        evaluator_sha256 = None
+    elif pinned:
         from formula_search.verify_2a import load_verified_2a
 
         verified = load_verified_2a(require_runtime=True)
@@ -128,7 +149,7 @@ def run_sweep(
         assert verified.search_config is not None and verified.search_all is not None
         SearchConfig = verified.search_config
         search_all = verified.search_all
-        backend_sha256: dict[str, str] = verified.proof.module_hashes()
+        backend_sha256 = verified.proof.module_hashes()
         backend_commit: str | None = verified.proof.commit
         evaluator_sha256 = str(verified.evaluator_sha256)
     elif chosen_backend == "new_search":
@@ -182,7 +203,7 @@ def run_sweep(
         raise ValueError("Fit, validation, and test must each contain examples")
     if not np.isfinite(activation).all():
         raise ValueError("Activation matrix contains nonfinite values")
-    if beam > len(names):
+    if not neural and beam > len(names):
         raise ValueError("Beam size cannot exceed feature count in this backend")
 
     if pair is not None:
@@ -218,8 +239,8 @@ def run_sweep(
             if prefix_selection
             else None
         ),
-        "beam": beam,
-        "length": length,
+        "beam": None if neural else beam,
+        "length": None if neural else length,
         "seed": seed,
         "quantile": quantile,
         "eligibility_fraction": min_fit_fraction,
@@ -228,6 +249,8 @@ def run_sweep(
     }
     if pinned:
         config.update(backend_commit=backend_commit, max_iterations=max_iterations)
+    if neural:
+        config.update(backend=chosen_backend, max_iterations=max_iterations)
     if all_examples:
         config.update(example_scope="all", example_count=len(split))
     config = json.loads(json.dumps(config))
@@ -247,6 +270,18 @@ def run_sweep(
     expected = {"&".join(map(str, values)) for values in requested}
     if not completed <= expected or len(completed) != len(rows):
         raise ValueError("Saved results do not match requested targets")
+    if neural:
+        for row in rows:
+            if row["status"] != "ok":
+                continue
+            relative = _attention_path(output_path, row["neuron"])
+            attention = output_path.parent / relative
+            if (
+                row.get("attention_path") != relative.as_posix()
+                or not attention.is_file()
+                or row.get("attention_sha256") != sha256_file(attention)
+            ):
+                raise ValueError(f"Missing or changed attention artifact: {attention}")
 
     atomic_write_json(
         manifest_path,
@@ -271,25 +306,32 @@ def run_sweep(
     binary = raw.numpy() > thresholds
     by_id = {value: column for column, value in enumerate(unique_ids)}
 
-    evaluator = FormulaEvaluator(names, vectors)
-    fit_features = [(Symbol(name), vector[fit]) for name, vector in zip(names, vectors)]
-    if pinned:
-        search_config = SearchConfig(
-            maximum_formula_length=length,
-            beam_size=beam,
-            max_iterations=max_iterations,
-        )
-    elif chosen_backend == "new_search":
-        search_config = SearchConfig(
-            maximum_formula_length=length,
-            beam_size=beam,
-            neuron_batch_size=neuron_batch_size,
-        )
+    if neural:
+        fit_vectors = vectors[:, fit]
     else:
-        search_config = SearchConfig(
-            maximum_formula_length=length,
-            beam_size=beam,
-        )
+        from sympy import Symbol
+
+        from formula_search.formula_eval import FormulaEvaluator
+
+        evaluator = FormulaEvaluator(names, vectors)
+        fit_features = [(Symbol(name), vector[fit]) for name, vector in zip(names, vectors)]
+        if pinned:
+            search_config = SearchConfig(
+                maximum_formula_length=length,
+                beam_size=beam,
+                max_iterations=max_iterations,
+            )
+        elif chosen_backend == "new_search":
+            search_config = SearchConfig(
+                maximum_formula_length=length,
+                beam_size=beam,
+                neuron_batch_size=neuron_batch_size,
+            )
+        else:
+            search_config = SearchConfig(
+                maximum_formula_length=length,
+                beam_size=beam,
+            )
 
     pending = [
         values for values in requested if "&".join(map(str, values)) not in completed
@@ -309,7 +351,7 @@ def run_sweep(
             if pair is not None or int(target[fit].sum()) >= minimum
         ]
         results = {}
-        if searchable:
+        if searchable and not neural:
             fit_targets = np.column_stack([targets[index][fit] for index in searchable])
             with open(os.devnull, "w", encoding="utf-8") as quiet, redirect_stdout(
                 quiet if pinned else sys.stdout
@@ -325,34 +367,68 @@ def run_sweep(
             results = {searchable[result.activation_index]: result for result in output}
 
         for index, (values, target) in enumerate(zip(chunk, targets)):
-            result = results.get(index)
-            valid = result is not None and result.best_formula not in ("", "LOW_ACTS_PRUNED")
-            formula = result.best_formula if valid else ""
-            prediction = evaluator.evaluate(formula) if valid else np.zeros_like(target)
+            neuron = "&".join(map(str, values))
+            formula = ""
+            backend_fit_iou: float | str = ""
+            status = "ineligible"
+            fitted = None
+            if neural:
+                if index in searchable:
+                    fitted = neural_algorithm.fit_neuron(
+                        fit_vectors,
+                        target[fit],
+                        steps=max_iterations,
+                        seed=seed,
+                        device=device,
+                    )
+                    prediction = fitted.predict(vectors)
+                    backend_fit_iou = fitted.fit_iou
+                    status = "ok"
+            else:
+                result = results.get(index)
+                if result is not None:
+                    backend_fit_iou = result.best_score
+                    status = "no_formula"
+                    if result.best_formula not in ("", "LOW_ACTS_PRUNED"):
+                        formula = result.best_formula
+                        prediction = evaluator.evaluate(formula)
+                        status = "ok"
+            if status != "ok":
+                prediction = np.zeros_like(target)
             metrics = score(target, prediction, split)
-            if valid and not math.isclose(metrics["fit_iou"], result.best_score, abs_tol=2e-6):
-                raise RuntimeError(f"Backend/evaluator IoU disagreement: {values}")
+            if status == "ok" and not math.isclose(
+                metrics["fit_iou"], float(backend_fit_iou), abs_tol=2e-6
+            ):
+                raise RuntimeError(f"Backend/scored fit IoU disagreement: {values}")
             row: dict[str, Any] = {
                 "layer": layer,
-                "neuron": "&".join(map(str, values)),
+                "neuron": neuron,
                 "neuron_ids": json.dumps(values),
                 "target_type": "pair" if pair is not None else "neuron",
-                "status": "ok" if valid else ("no_formula" if result else "ineligible"),
+                "status": status,
                 "formula": formula,
-                "backend_fit_iou": result.best_score if result else "",
+                "backend_fit_iou": backend_fit_iou,
                 "thresholds": json.dumps([float(thresholds[by_id[value]]) for value in values]),
                 **metrics,
-                "beam": beam,
-                "length": length,
+                "beam": "" if neural else beam,
+                "length": "" if neural else length,
                 "min_fit_support": minimum,
             }
-            if not valid:
+            if status != "ok":
                 for split_name in ("fit", "validation", "test"):
                     for metric in ("iou", "predictions", "intersection"):
                         row[f"{split_name}_{metric}"] = ""
+            if fitted is not None:
+                relative = _attention_path(output_path, neuron)
+                payload = fitted.to_npz(names)
+                atomic_write_bytes(output_path.parent / relative, payload)
+                row.update(
+                    attention_path=relative.as_posix(),
+                    attention_sha256=hashlib.sha256(payload).hexdigest(),
+                )
             rows.append(row)
 
-        persist_rows(output_path, rows)
+        persist_rows(output_path, rows, NEURAL_FIELDS if neural else FIELDS)
         coverage = {
             "requested": len(requested),
             "completed": len(rows),
@@ -380,6 +456,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--quantile", type=float, default=0.945)
     parser.add_argument("--min-fit-fraction", type=float, default=0.05)
     parser.add_argument("--seed", type=int, default=20261111)
+    parser.add_argument("--max-iterations", type=int, default=48)
     parser.add_argument("--chunk-size", type=int, default=32)
     parser.add_argument("--max-chunks", type=int, default=None)
     parser.add_argument("--neuron-batch-size", type=int, default=1)
@@ -411,6 +488,7 @@ def main(argv: list[str] | None = None) -> None:
         quantile=args.quantile,
         min_fit_fraction=args.min_fit_fraction,
         seed=args.seed,
+        max_iterations=args.max_iterations,
         chunk_size=args.chunk_size,
         max_chunks=args.max_chunks,
         neuron_batch_size=args.neuron_batch_size,

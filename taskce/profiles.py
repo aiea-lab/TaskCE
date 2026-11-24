@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 import os
 from pathlib import Path
 import tomllib
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, get_args
 
 from taskce.runtime import LayerName, SearchBackendName, Sha256Hex, sha256_json
 
@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 BUILTIN_PROFILES_DIR = Path(__file__).resolve().parent / "profiles"
 
-_VALID_BACKENDS = frozenset({"vectorized_search_2a", "new_search", "search"})
+_VALID_BACKENDS = frozenset(get_args(SearchBackendName))
 _ALLOWED_TOP_KEYS = frozenset(
     {"name", "description", "extends", "model", "dataset", "search", "artifacts"}
 )
