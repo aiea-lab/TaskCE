@@ -2,6 +2,8 @@
 
 `--attention-mode cross` produces five scores per concept. With `--attention-mode bidirectional` or `causal`, the model uses a self-attention path for the order and produces four scores per concept.
 
+The [SNLI experiment](attention_experiment.md) compares decoder choices, model widths, and all 2,048 final-layer neurons against pinned vectorized search 2.a on Titan Xp GPUs.
+
 ## Cross-attention
 
 The context contains the firing mask of one neuron and a binary mask for each named concept, all aligned to the same examples. On the SNLI capture these inputs have 10,000 coordinates per token. Each neuron gets a fresh model and optimizer.

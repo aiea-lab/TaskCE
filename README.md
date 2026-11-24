@@ -109,7 +109,7 @@ uv run taskce ablation --profile snli --formula-path path/to/snli_beam_results.c
 uv run taskce formula-search --profile snli --backend neural_search --layer embedding_norm --ids 0 --max-iterations 256 --all-examples --chunk-size 1 --device cuda
 ```
 
-The run saves the output table in vocabulary order, the decoded formula, and its measured IoU. Use `--encoder-width` to vary the query, key and value dimension, `--readout-width` to vary the readout's hidden dimension, and `--attention-mode` to choose the decoder. See the [method and replay instructions](formula_search/neural_search/README.md).
+The run saves the output table in vocabulary order, the decoded formula, and its measured IoU. Use `--encoder-width` to vary the query, key and value dimension, `--readout-width` to vary the readout's hidden dimension, and `--attention-mode` to choose the decoder. See the [method and replay instructions](formula_search/neural_search/README.md) and [SNLI full-layer and attention-path results](formula_search/neural_search/attention_experiment.md).
 
 ### Add a new study profile
 
