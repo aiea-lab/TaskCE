@@ -137,3 +137,19 @@ def test_saved_factors_and_operations_replay_model_output(mode):
     assert result.iou == np.count_nonzero(pred & target) / np.count_nonzero(
         pred | target
     )
+
+
+def test_token_layout_is_independent_of_example_subsetting():
+    rng = np.random.default_rng(27)
+    vectors = rng.random((23, 101)) < 0.35
+    target = vectors[0] | vectors[4]
+    options = dict(steps=4, seed=24, device="cpu", encoder_width=16, readout_width=12,
+                   mask_mode="bidirectional")
+    names = [str(i) for i in range(len(vectors))]
+    direct = sa.fit_self_formula(vectors, target, names, **options)
+    subset = vectors[:, np.ones(target.size, dtype=bool)]
+    assert subset.flags.f_contiguous
+    prepared = sa.fit_self_formula(subset, target, names, **options)
+    np.testing.assert_array_equal(prepared.table, direct.table)
+    np.testing.assert_array_equal(prepared.queries, direct.queries)
+    np.testing.assert_array_equal(prepared.keys, direct.keys)

@@ -264,9 +264,11 @@ def fit_self_formula(
     fit_device = torch.device(device)
     layout = _layout(len(names), layout_seed)
     positions = torch.as_tensor(layout, device=fit_device)
+    # Column subsetting can return a Fortran-ordered array. Normalize strides
+    # before any reductions so equivalent inputs follow the same GPU numerics.
     tokens = torch.as_tensor(
         np.vstack((vectors, target)), device=fit_device, dtype=torch.float32
-    )
+    ).contiguous()
     tokens -= tokens.mean(dim=1, keepdim=True)
     tokens = F.normalize(tokens, dim=1)
     model = _SelfPolicy(target.size, len(names), encoder_width, readout_width, seed).to(
