@@ -2,6 +2,8 @@
 
 The context for one search is the measured firing mask of one neuron followed by every binary concept mask. Each token is a vector indexed by the same examples. The neuron supplies the attention query. The concept masks supply the keys and values. This starter model has one attention readout and zero transformer blocks.
 
+The [SNLI pilot](snli_pilot.md) compares repeated full-context updates against pinned vectorized search 2.a on the same six neurons.
+
 The sweep thresholds that neuron's final-token activations at the configured quantile. Attention compares its centered firing mask with each centered concept mask by cosine similarity. The model learns one gain per example in the query and a shared scale for the softmax. Each concept's resulting probability is its contribution wherever that concept is present.
 
 Every update sees the same tokens and all of the same examples. The model finds the firing cutoff with the best hard intersection over union (IoU) and minimizes `1 - IoU`. A straight-through estimator supplies gradients. The search retains the highest training IoU it sees, recalibrates the cutoff for the saved weights, and resets the parameters and optimizer for the next neuron.
