@@ -1,5 +1,5 @@
-"""Attention-based binary neuron explanations."""
+"""Learn a Boolean formula from five attention-model outputs per concept."""
 
-from .algorithm import AttentionExplanation, fit_neuron
+from .attention_formula import AttentionFormulaResult, decode_table, fit_formula
 
-__all__ = ["AttentionExplanation", "fit_neuron"]
+__all__ = ["AttentionFormulaResult", "decode_table", "fit_formula"]

@@ -103,13 +103,13 @@ uv run taskce ablation --profile snli --formula-path path/to/snli_beam_results.c
 
 ### Search the LLM's final embedding normalization with attention
 
-`neural_search` fits a separate attention policy for each neuron and emits a Boolean formula using selected concept names, OR, AND, and AND NOT. This command searches neuron 0 using 256 full-context training updates.
+`neural_search` fits a fresh attention model for each neuron. Cross-attention gives each concept five output scores for inclusion, order, OR, AND and AND NOT. Bidirectional and causal self-attention use four output scores and read the formula order by following attention edges. This command searches neuron 0 with 256 updates on all examples.
 
 ```sh
 uv run taskce formula-search --profile snli --backend neural_search --layer embedding_norm --ids 0 --max-iterations 256 --all-examples --chunk-size 1 --device cuda
 ```
 
-The run's `embedding_norm.csv` records the formula, fit IoU, length in selected concept occurrences, and the fit IoU of its first 48 occurrences. Its `neural_trace_path` points to selected actions, policy and attention logits, ranks, and prefix IoUs. `neural_weighted` preserves the earlier dense weighted predictor. See the [method, comparison commands, and trace](formula_search/neural_search/README.md).
+The run saves the output table in vocabulary order, the decoded formula, and its measured IoU. Use `--encoder-width` to vary the query, key and value dimension, `--readout-width` to vary the readout's hidden dimension, and `--attention-mode` to choose the decoder. See the [method and replay instructions](formula_search/neural_search/README.md).
 
 ### Add a new study profile
 

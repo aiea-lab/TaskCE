@@ -1,6 +1,6 @@
 # SNLI embedding normalization weighted-predictor pilot
 
-These six-neuron results use the dense weighted predictor, now named `neural_weighted`. The discrete `neural_search` backend selects named Boolean formulas. See the [current method](README.md) and the [full-layer comparison](snli_layer_sweep.md).
+These six-neuron results describe the retired dense weighted predictor. Its [implementation at the time of the pilot](https://github.com/aiea-lab/TaskCE/blob/37131bb/formula_search/neural_search/algorithm.py) is archived. The current [attention model](README.md) produces five scores per concept.
 
 On six neurons, neural search reached mean IoU 0.2221 after 256 updates on all 10,000 examples. Pinned vectorized search 2.a reached 0.1758. Neural search led on four neurons. Neuron 3 favored 2.a by 0.0952 IoU.
 

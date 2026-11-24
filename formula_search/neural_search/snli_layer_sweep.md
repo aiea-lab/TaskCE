@@ -1,4 +1,6 @@
-# Can per-neuron attention find better formulas than vectorized 2.a?
+# Historical comparison of greedy formula search and vectorized 2.a
+
+These results describe the retired greedy action scorer. The current neural search generates a complete formula using a learned order score or a self-attention path. See the [model and decoder](README.md).
 
 On all 2,048 final embedding-normalization neurons of the SNLI LLM, pinned 2.a reached mean IoU **0.1951**. The 256-update neural formula search reached **0.1558** with unrestricted decoding and **0.1206** at 48 concept occurrences. The unrestricted search won on 659 neurons, tied on 0, and lost on 1,389. Every comparison used the same 10,000 examples on a Titan Xp.
 
@@ -49,10 +51,10 @@ The full-layer results above measure reconstruction on the 10,000 search example
 
 The [paired CSV](snli_layer_metrics.csv) has one row per neuron, with both scores, intersections, prediction counts, lengths, distinct counts, timings and the neural prefix scores. The [compressed formula archive](snli_layer_formulas.jsonl.gz) starts with the ordered vocabulary and source and input hashes. Each subsequent line contains a neuron ID, both rendered formulas, and the neural action indices, operators, logits, ranks and prefix IoUs.
 
-The [benchmark runner](benchmark_snli.py) checks the prepared file hashes and executes the searches. The complete sweep used 32 workers with shard IDs 0 through 31. Running without shard arguments processes every neuron sequentially.
+The [archived benchmark runner](https://github.com/aiea-lab/TaskCE/blob/37131bb/formula_search/neural_search/benchmark_snli.py) checks the prepared file hashes and executes the searches. The complete sweep used 32 workers with shard IDs 0 through 31. To replay these historical results, use commit `37131bb`.
 
 ```sh
 python -m formula_search.neural_search.benchmark_snli inputs results
 ```
 
-For a single neuron, the [CLI and replay example](README.md) writes a named trace and verifies its checksum on resume.
+The [historical CLI example](https://github.com/aiea-lab/TaskCE/blob/37131bb/formula_search/neural_search/README.md) shows the greedy model's trace.

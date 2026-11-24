@@ -10,7 +10,6 @@ from __future__ import annotations
 import argparse
 from contextlib import redirect_stdout
 import csv
-import hashlib
 import io
 import json
 import math
@@ -45,10 +44,9 @@ FIELDS = (
     "length",
     "min_fit_support",
 )
-WEIGHTED_FIELDS = (*FIELDS, "attention_path", "attention_sha256")
 FORMULA_NEURAL_FIELDS = (
     *FIELDS, "neural_concept_count", "neural_unique_concepts", "neural_fit_iou_at_48",
-    "neural_trace_path", "neural_trace_sha256",
+    "neural_trace_path", "neural_trace_sha256", "neural_table_path", "neural_table_sha256",
 )
 
 
@@ -84,12 +82,91 @@ def persist_rows(
     atomic_write_text(path, buffer.getvalue())
 
 
-def _attention_path(output_path: Path, neuron: str) -> Path:
-    return Path(f"{output_path.stem}.attention") / f"{neuron}.npz"
+def _table_path(output_path: Path, neuron: str) -> Path:
+    return Path(f"{output_path.stem}.table") / f"{neuron}.npz"
 
 
 def _trace_path(output_path: Path, neuron: str) -> Path:
     return Path(f"{output_path.stem}.trace") / f"{neuron}.json"
+
+
+
+NEURAL_TABLE_COLUMNS = ("keep_logit", "order", "or_logit", "and_logit", "and_not_logit")
+SELF_TABLE_COLUMNS = ("keep_logit", "or_logit", "and_logit", "and_not_logit")
+
+
+def _decode_self_table(saved, table, mode):
+    ids, positions, queries, keys = (saved[key] for key in ("ids", "positions", "queries", "keys"))
+    expected_ids = np.r_[np.flatnonzero(table[:, 0] >= 0), len(table)]
+    count = len(expected_ids)
+    if (
+        not np.array_equal(ids, expected_ids)
+        or not np.issubdtype(positions.dtype, np.integer)
+        or positions.shape != (count,) or positions[-1] != len(table)
+        or len(np.unique(positions)) != count or np.any(positions < 0)
+        or np.any(positions[:-1] >= len(table))
+        or queries.dtype != np.float32 or keys.dtype != np.float32
+        or queries.ndim != 2 or queries.shape != keys.shape
+        or queries.shape[0] != count or queries.shape[1] < 1
+        or not np.isfinite(queries).all() or not np.isfinite(keys).all()
+    ):
+        raise ValueError("Invalid neural self-attention factors")
+    remaining = list(range(count - 1))
+    current = count - 1
+    indices = []
+    while remaining:
+        if mode == "causal":
+            remaining = [i for i in remaining if positions[i] < positions[current]]
+            if not remaining:
+                break
+        scores = keys[remaining] @ queries[current]
+        current = remaining.pop(int(np.argmax(scores)))
+        indices.append(int(ids[current]))
+    return indices
+
+
+
+def validate_neural_table(saved, names: np.ndarray, trace: dict[str, Any], mode: str = "cross") -> None:
+    """Check the persisted table schema and independently decode the saved trace."""
+    required = {"schema", "names", "table", "columns", "keep_threshold"}
+    if mode != "cross":
+        required |= {"mask_mode", "ids", "positions", "queries", "keys"}
+    if set(saved.files) != required:
+        raise ValueError("Invalid neural table fields")
+    table = saved["table"]
+    columns = NEURAL_TABLE_COLUMNS if mode == "cross" else SELF_TABLE_COLUMNS
+    if (
+        mode not in ("cross", "causal", "bidirectional")
+        or saved["schema"].shape != ()
+        or int(saved["schema"]) != (1 if mode == "cross" else 2)
+        or not np.array_equal(saved["names"], names)
+        or tuple(saved["columns"].tolist()) != columns
+        or saved["keep_threshold"].shape != ()
+        or float(saved["keep_threshold"]) != 0.0
+        or table.dtype != np.float32 or table.shape != (len(names), len(columns))
+        or not np.isfinite(table).all()
+    ):
+        raise ValueError("Invalid neural table schema or contents")
+    if mode == "cross":
+        selected = np.flatnonzero(table[:, 0] >= 0.0)
+        indices = selected[np.argsort(-table[selected, 1], kind="stable")].tolist()
+    else:
+        if saved["mask_mode"].shape != () or str(saved["mask_mode"]) != mode:
+            raise ValueError("Invalid neural self-attention mask mode")
+        indices = _decode_self_table(saved, table, mode)
+        if trace.get("kept_count") != int(np.count_nonzero(table[:, 0] >= 0)):
+            raise ValueError("Neural self-attention kept count disagrees")
+    op_start = 2 if mode == "cross" else 1
+    operations = (["ATOM"] + [
+        ("OR", "AND", "AND NOT")[int(table[i, op_start:].argmax())] for i in indices[1:]
+    ]) if indices else []
+    from formula_search.neural_search.instructions import render_formula
+
+    if (list(trace["indices"]) != indices or list(trace["operations"]) != operations
+            or trace["names"] != [str(names[i]) for i in indices]
+            or trace.get("formula") != render_formula(names, indices, operations)
+            or len(trace["prefix_ious"]) != len(indices)):
+        raise ValueError("Neural table and formula trace disagree")
 
 
 def run_sweep(
@@ -107,6 +184,10 @@ def run_sweep(
     min_fit_fraction: float = 0.05,
     seed: int = 20261111,
     max_iterations: int = 48,
+    attention_mode: str = "cross",
+    layout_seed: int | None = None,
+    encoder_width: int = 96,
+    readout_width: int = 32,
     chunk_size: int = 32,
     max_chunks: int | None = None,
     neuron_batch_size: int = 1,
@@ -118,8 +199,11 @@ def run_sweep(
     """Run resumable concept search over prepared NPZ inputs."""
     chosen_backend = backend or os.environ.get("TASKCE_BACKEND") or "new_search"
     pinned = chosen_backend == "vectorized_search_2a"
-    neural = chosen_backend in ("neural_search", "neural_weighted")
-    weighted = chosen_backend == "neural_weighted"
+    neural = chosen_backend == "neural_search"
+    if attention_mode not in ("cross", "causal", "bidirectional"):
+        raise ValueError("Invalid attention mode")
+    if attention_mode == "cross" and layout_seed is not None:
+        raise ValueError("layout_seed applies only to self-attention modes")
     positive_options = {
         "chunk_size": chunk_size,
         "neuron_batch_size": neuron_batch_size,
@@ -129,7 +213,7 @@ def run_sweep(
             raise ValueError("Neural backends require neuron_batch_size=1")
         if prefix_selection:
             raise ValueError("prefix_selection is only supported with new_search")
-        positive_options["max_iterations"] = max_iterations
+        positive_options.update(max_iterations=max_iterations, encoder_width=encoder_width, readout_width=readout_width)
     else:
         positive_options.update(beam=beam, length=length)
     for key, val in positive_options.items():
@@ -143,20 +227,19 @@ def run_sweep(
     import torch
 
     if neural:
-        if weighted:
-            from formula_search.neural_search import algorithm as neural_algorithm
-        else:
-            from formula_search.neural_search import algorithm as neural_dependency
-            from formula_search.neural_search import formula as neural_algorithm
+        from formula_search.neural_search import attention_formula as neural_algorithm
+        from formula_search.neural_search import instructions as neural_instructions
 
-        backend_modules = (neural_algorithm,) if weighted else (neural_algorithm, neural_dependency)
-        backend_sha256: dict[str, str] = {
+        modules = [neural_algorithm, neural_instructions]
+        if attention_mode != "cross":
+            from formula_search.neural_search import self_attention
+
+            modules.append(self_attention)
+        backend_sha256 = {
             module.__name__: str(sha256_file(Path(module.__file__)))
-            for module in backend_modules
+            for module in modules
         }
-        evaluator_sha256 = (
-            None if weighted else str(sha256_file(Path(__file__).with_name("formula_eval.py")))
-        )
+        evaluator_sha256 = str(sha256_file(Path(__file__).with_name("formula_eval.py")))
     elif pinned:
         from formula_search.verify_2a import load_verified_2a
 
@@ -206,6 +289,8 @@ def run_sweep(
 
     if vectors.dtype != np.bool_ or vectors.ndim != 2:
         raise ValueError("Feature vectors must be a bool [concept, example] matrix")
+    if not vectors.shape[0]:
+        raise ValueError("Feature vectors must contain at least one concept")
     if names.shape != (vectors.shape[0],) or len(set(names)) != len(names):
         raise ValueError("Feature names must be unique and match concept count")
     if any(not name or name in ("AND", "OR", "NOT", "(", ")") for name in names):
@@ -267,7 +352,9 @@ def run_sweep(
     if pinned:
         config.update(backend_commit=backend_commit, max_iterations=max_iterations)
     if neural:
-        config.update(backend=chosen_backend, max_iterations=max_iterations)
+        config.update(backend=chosen_backend, max_iterations=max_iterations,
+                      encoder_width=encoder_width, readout_width=readout_width,
+                      attention_mode=attention_mode, layout_seed=layout_seed)
     if all_examples:
         config.update(example_scope="all", example_count=len(split))
     config = json.loads(json.dumps(config))
@@ -280,6 +367,8 @@ def run_sweep(
         if output_path.exists():
             with output_path.open(newline="", encoding="utf-8") as stream:
                 rows = list(csv.DictReader(stream))
+        elif previous.get("coverage", {}).get("completed", 0):
+            raise ValueError("Resume results CSV is missing for completed targets")
     elif output_path.exists() or manifest_path.exists():
         raise FileExistsError("Output already exists; use --resume or another path")
 
@@ -287,20 +376,7 @@ def run_sweep(
     expected = {"&".join(map(str, values)) for values in requested}
     if not completed <= expected or len(completed) != len(rows):
         raise ValueError("Saved results do not match requested targets")
-    if weighted:
-        for row in rows:
-            if row["status"] != "ok":
-                continue
-            relative = _attention_path(output_path, row["neuron"])
-            attention = output_path.parent / relative
-            if (
-                row.get("attention_path") != relative.as_posix()
-                or not attention.is_file()
-                or row.get("attention_sha256") != sha256_file(attention)
-            ):
-                raise ValueError(f"Missing or changed attention artifact: {attention}")
-
-    if neural and not weighted:
+    if neural:
         for row in rows:
             if row["status"] not in ("ok", "no_formula"):
                 continue
@@ -312,6 +388,19 @@ def run_sweep(
                 or row.get("neural_trace_sha256") != sha256_file(trace)
             ):
                 raise ValueError(f"Missing or changed neural trace: {trace}")
+            relative = _table_path(output_path, row["neuron"])
+            table_path = output_path.parent / relative
+            if (
+                row.get("neural_table_path") != relative.as_posix()
+                or not table_path.is_file()
+                or row.get("neural_table_sha256") != sha256_file(table_path)
+            ):
+                raise ValueError(f"Missing or changed neural table: {table_path}")
+            trace_data = json.loads(trace.read_text(encoding="utf-8"))
+            if trace_data.get("formula") != row["formula"]:
+                raise ValueError("Neural formula and trace disagree")
+            with np.load(table_path, allow_pickle=False) as saved:
+                validate_neural_table(saved, names, trace_data, attention_mode)
 
     atomic_write_json(
         manifest_path,
@@ -338,10 +427,9 @@ def run_sweep(
 
     if neural:
         fit_vectors = vectors[:, fit]
-    if not weighted:
-        from formula_search.formula_eval import FormulaEvaluator
+    from formula_search.formula_eval import FormulaEvaluator
 
-        evaluator = FormulaEvaluator(names, vectors)
+    evaluator = FormulaEvaluator(names, vectors)
     if not neural:
         from sympy import Symbol
 
@@ -403,24 +491,17 @@ def run_sweep(
             backend_fit_iou: float | str = ""
             status = "ineligible"
             fitted = None
-            if weighted:
+            if neural:
                 if index in searchable:
-                    fitted = neural_algorithm.fit_neuron(
-                        fit_vectors,
-                        target[fit],
-                        steps=max_iterations,
-                        seed=seed,
-                        device=device,
-                    )
-                    prediction = fitted.predict(vectors)
-                    backend_fit_iou = fitted.fit_iou
-                    status = "ok"
-            elif neural:
-                if index in searchable:
-                    fitted = neural_algorithm.fit_formula(
-                        fit_vectors, target[fit], names, steps=max_iterations,
-                        seed=seed, device=device,
-                    )
+                    common = dict(steps=max_iterations, seed=seed, device=device,
+                                  encoder_width=encoder_width, readout_width=readout_width)
+                    if attention_mode == "cross":
+                        fitted = neural_algorithm.fit_formula(fit_vectors, target[fit], names, **common)
+                    else:
+                        fitted = self_attention.fit_self_formula(
+                            fit_vectors, target[fit], names, mask_mode=attention_mode,
+                            layout_seed=layout_seed, **common,
+                        )
                     formula = fitted.formula
                     backend_fit_iou = fitted.iou
                     status = "ok" if formula else "no_formula"
@@ -446,7 +527,7 @@ def run_sweep(
             if status != "ok":
                 prediction = np.zeros_like(target)
             metrics = score(target, prediction, split)
-            scored_formula = neural and not weighted and fitted is not None
+            scored_formula = neural and fitted is not None
             if (status == "ok" or scored_formula) and not math.isclose(
                 metrics["fit_iou"], float(backend_fit_iou), abs_tol=2e-6
             ):
@@ -469,42 +550,56 @@ def run_sweep(
                 for split_name in ("fit", "validation", "test"):
                     for metric in ("iou", "predictions", "intersection"):
                         row[f"{split_name}_{metric}"] = ""
-            if neural and not weighted:
+            if neural:
                 row.update(
                     neural_concept_count=len(fitted.indices) if fitted is not None else "",
                     neural_unique_concepts=len(set(fitted.indices)) if fitted is not None else "",
-                    neural_fit_iou_at_48=fitted.best_at_48.iou if fitted is not None else "",
+                    neural_fit_iou_at_48=(fitted.prefix_ious[min(48, len(fitted.prefix_ious)) - 1]
+                                          if fitted is not None and fitted.prefix_ious else 0.0 if fitted is not None else ""),
                 )
                 if fitted is not None:
                     relative = _trace_path(output_path, neuron)
                     trace_path = output_path.parent / relative
-                    atomic_write_json(trace_path, {
+                    prefix_48 = fitted.prefix_ious[min(48, len(fitted.prefix_ious)) - 1] if fitted.prefix_ious else 0.0
+                    trace = {
                         "schema": 1,
+                        "backend": chosen_backend,
+                        "formula": fitted.formula,
                         "indices": fitted.indices,
                         "names": [str(names[i]) for i in fitted.indices],
                         "operations": fitted.operations,
                         "prefix_ious": fitted.prefix_ious,
-                        "action_logits": fitted.action_logits,
-                        "attention_logits": fitted.attention_logits,
-                        "action_ranks": fitted.action_ranks,
-                        "fit_iou_at_48": fitted.best_at_48.iou,
+                        "fit_iou_at_48": prefix_48,
                         "stop_reason": fitted.stop_reason,
-                    }, canonical=True)
+                    }
+                    buffer = io.BytesIO()
+                    table_data = dict(schema=np.array(1), names=names, table=fitted.table,
+                                      columns=np.array(NEURAL_TABLE_COLUMNS), keep_threshold=np.array(0.0))
+                    if attention_mode != "cross":
+                        ids = np.r_[np.flatnonzero(fitted.table[:, 0] >= 0), len(names)]
+                        table_data.update(
+                            schema=np.array(2), columns=np.array(SELF_TABLE_COLUMNS),
+                            mask_mode=np.array(attention_mode), ids=ids,
+                            positions=fitted.positions[ids], queries=fitted.queries[ids],
+                            keys=fitted.keys[ids],
+                        )
+                        trace["kept_count"] = int(fitted.kept_count)
+                    np.savez(buffer, **table_data)
+                    payload = buffer.getvalue()
+                    with np.load(io.BytesIO(payload), allow_pickle=False) as saved:
+                        validate_neural_table(saved, names, trace, attention_mode)
+                    table_relative = _table_path(output_path, neuron)
+                    atomic_write_bytes(output_path.parent / table_relative, payload)
+                    atomic_write_json(trace_path, trace, canonical=True)
                     row.update(
                         neural_trace_path=relative.as_posix(),
                         neural_trace_sha256=sha256_file(trace_path),
+                        neural_table_path=table_relative.as_posix(),
+                        neural_table_sha256=sha256_file(output_path.parent / table_relative),
                     )
-            if weighted and fitted is not None:
-                relative = _attention_path(output_path, neuron)
-                payload = fitted.to_npz(names)
-                atomic_write_bytes(output_path.parent / relative, payload)
-                row.update(
-                    attention_path=relative.as_posix(),
-                    attention_sha256=hashlib.sha256(payload).hexdigest(),
-                )
             rows.append(row)
 
-        fields = WEIGHTED_FIELDS if weighted else FORMULA_NEURAL_FIELDS if neural else FIELDS
+        fields = FORMULA_NEURAL_FIELDS if neural else FIELDS
         persist_rows(output_path, rows, fields)
         coverage = {
             "requested": len(requested),
@@ -534,6 +629,10 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--min-fit-fraction", type=float, default=0.05)
     parser.add_argument("--seed", type=int, default=20261111)
     parser.add_argument("--max-iterations", type=int, default=48)
+    parser.add_argument("--attention-mode", choices=("cross", "causal", "bidirectional"), default="cross")
+    parser.add_argument("--layout-seed", type=int, default=None)
+    parser.add_argument("--encoder-width", type=int, default=96)
+    parser.add_argument("--readout-width", type=int, default=32)
     parser.add_argument("--chunk-size", type=int, default=32)
     parser.add_argument("--max-chunks", type=int, default=None)
     parser.add_argument("--neuron-batch-size", type=int, default=1)
@@ -566,6 +665,10 @@ def main(argv: list[str] | None = None) -> None:
         min_fit_fraction=args.min_fit_fraction,
         seed=args.seed,
         max_iterations=args.max_iterations,
+        attention_mode=args.attention_mode,
+        layout_seed=args.layout_seed,
+        encoder_width=args.encoder_width,
+        readout_width=args.readout_width,
         chunk_size=args.chunk_size,
         max_chunks=args.max_chunks,
         neuron_batch_size=args.neuron_batch_size,

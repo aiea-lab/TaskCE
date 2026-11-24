@@ -1,43 +1,44 @@
-# Search for a Boolean explanation of a neuron
+# Generating neuron formulas with attention
 
-`neural_search` trains a fresh attention policy per neuron to select named concepts and combine them with OR, AND, and AND NOT. It thresholds the neuron's activations at the configured quantile and trains against that binary target. Every update sees the same target and every concept mask across every fit example. With `--all-examples`, the fit context covers the entire prepared dataset.
+`--attention-mode cross` produces five scores per concept. With `--attention-mode bidirectional` or `causal`, the model uses a self-attention path for the order and produces four scores per concept.
 
-The policy builds eight signed projections of the aligned concept masks and target, including a centered target correlation. It learns separate attention queries for the initial atom and the three later operators. The final action logit combines this attention score with a learned score derived from each candidate mask's true and false positive counts and the current formula's state.
+## Cross-attention
 
-Training uses Adam to increase expected hard IoU under the action probabilities. A second loss term favors the ordering implied by exact candidate IoUs. The policy explores prefixes by perturbing action logits during training. After training, it orders actions by their unperturbed logits, examines up to 16 per prefix, and accepts the first that strictly improves hard IoU. It stops at perfect IoU or when all 16 proposals fail to improve it. A concept can occur multiple times.
+The context contains the firing mask of one neuron and a binary mask for each named concept, all aligned to the same examples. On the SNLI capture these inputs have 10,000 coordinates per token. Each neuron gets a fresh model and optimizer.
 
-Formula length counts concept occurrences, including the initial atom and repeated names. The CSV reports the final fit IoU and `neural_fit_iou_at_48`. The latter evaluates the first 48 actions of the same trained policy, or the whole formula when it stops earlier.
+A learned query from the neuron attends to learned keys and values from the concepts. A learned scalar adjusts the query's contribution to the attention scores. For each concept, its raw attention score plus a learned bias supplies the keep logit. The shared readout consumes its key, the neuron query and the attention-weighted value summary. It predicts an order score and three operator logits. Encoder width controls the dimension of Q, K and V. Readout width controls the hidden dimension used to produce the last four columns.
 
-## Run a comparison
+The concept projections sum learned weights at the active example coordinates in a fixed order. Backpropagation uses the same sum over the transposed concept masks.
 
-Use the same prepared input directory, layer, neuron, threshold and device. The neural command trains for 256 updates. Pinned 2.a uses length and iteration limits of 48 and a beam of 40.
+| Column | Meaning at inference |
+| --- | --- |
+| 0 | Include if the keep logit is at least zero |
+| 1 | Sort included concepts by descending order score, breaking ties by input ID |
+| 2–4 | Pick the largest of the OR, AND and AND NOT logits in that order |
+
+The first included ID starts the expression. For each subsequent ID, fold its chosen operator and its original concept mask into the running expression. An empty selection predicts an all-false mask. For example, IDs for dog, cat and leash in that order with OR at cat and AND NOT at leash yield `((dog OR cat) AND (NOT leash))`. Each ID occurs at most once. The selected count determines the length.
+
+## Self-attention paths
+
+The window contains every concept, followed by the neuron. All tokens use shared learned Q, K and V projections. The neuron-to-concept logit plus a learned bias determines inclusion. Each concept attends to the legal values in the window and uses the resulting context for its three operator logits. The columns are keep, OR, AND and AND NOT.
+
+Start the path at the neuron token. Among the kept, unvisited concepts reachable from the current token, take the strongest Q/K attention edge. Move to that concept and read its own attention row to choose the next one. The first concept seeds the formula. Each later concept contributes its own highest-scoring operator. Ties use original concept ID. The saved keys, scaled queries, IDs and positions reproduce the walk.
+
+Bidirectional attention can visit every kept concept. Causal attention permits an edge to a previous token. Once the path moves early in the window, it may strand kept concepts in later positions. The neuron occupies the final position so its initial query can see the whole vocabulary. Use `--layout-seed 1729` to permute the concept positions while preserving their original IDs and masks. The models use content projections and a visibility mask. Bidirectional scoring is invariant to this position permutation.
+
+## Training
+
+Each update samples 24 complete formulas. Independent Bernoulli decisions choose the kept concepts. Cross-attention samples a weighted ordering of the retained IDs. Self-attention samples the next edge from the current token among the remaining reachable IDs. Categorical decisions supply the operators for the visited concepts after the first. The exact IoU of each completed binary formula supplies the reward. A policy gradient uses the mean reward of the other 23 samples as its baseline. Final evaluation decodes the trained outputs deterministically.
+
+## Search and replay
+
+Pass the same prepared inputs and target IDs to both searches. These commands search neuron 0 in the last embedding normalization layer. Use `--ids all --min-fit-fraction 0` for all nonempty target masks.
 
 ```sh
-uv run taskce formula-search --profile snli --stage search --inputs-dir inputs --layer embedding_norm --ids 0 --all-examples --chunk-size 1 --device cuda --backend neural_search --max-iterations 256 --output runs/neural_0
-uv run taskce formula-search --profile snli --stage search --inputs-dir inputs --layer embedding_norm --ids 0 --all-examples --chunk-size 1 --device cuda --backend vectorized_search_2a --beam 40 --length 48 --max-iterations 48 --output runs/2a_0
+uv run taskce formula-search --profile snli --stage search --inputs-dir inputs --layer embedding_norm --ids 0 --backend neural_search --encoder-width 96 --readout-width 32 --all-examples --max-iterations 256 --chunk-size 1 --device cuda --output runs/attention
+uv run taskce formula-search --profile snli --stage search --inputs-dir inputs --layer embedding_norm --ids 0 --backend vectorized_search_2a --beam 40 --length 48 --max-iterations 48 --all-examples --chunk-size 1 --device cuda --output runs/2a
 ```
 
-Use `--ids all --min-fit-fraction 0` to include every coordinate with a positive target. With `--all-examples`, fit IoU measures overlap on all prepared examples. Omit that flag to train on the fit split and score the frozen formula on validation and test. The full 2,048-neuron comparison is in the [SNLI layer sweep](snli_layer_sweep.md).
+The layer CSV records the rendered formula, its actual IoU and the score of its first 48 terms. The trace identifies the selected concepts and operators. The accompanying NPZ preserves the outputs for every concept in vocabulary order, including skipped concepts. Self-attention runs also retain the factors and positions for replaying every edge choice. The artifact checksums validate resume.
 
-## Inspect and replay
-
-The CSV contains the rendered `formula`, the total and unique concept counts, and a relative `neural_trace_path` with a checksum. The JSON trace records selected indices, names and operators, prefix IoUs, `action_logits`, `attention_logits`, one-based `action_ranks`, `fit_iou_at_48`, and the stopping reason. Each logit is the selected action's score at that prefix. Rank 1 means the policy's first proposal passed the IoU check.
-
-```python
-import csv
-import json
-from pathlib import Path
-import numpy as np
-from formula_search.formula_eval import FormulaEvaluator
-
-csv_path = Path("runs/neural_0/embedding_norm.csv")
-with csv_path.open(newline="", encoding="utf-8") as stream:
-    row = next(csv.DictReader(stream))
-trace = json.loads((csv_path.parent / row["neural_trace_path"]).read_text(encoding="utf-8"))
-with np.load("inputs/features.npz", allow_pickle=False) as data:
-    prediction = FormulaEvaluator(data["names"].astype(str), data["vectors"]).evaluate(row["formula"])
-for action in zip(trace["names"], trace["operations"], trace["action_logits"], trace["attention_logits"], trace["action_ranks"], trace["prefix_ious"]):
-    print(action)
-```
-
-`neural_weighted` fits the dense thresholded attention predictor used in the [historical six-neuron pilot](snli_pilot.md).
+The [historical greedy search](snli_layer_sweep.md) and [historical weighted predictor](snli_pilot.md) have their own results and pinned source revisions.

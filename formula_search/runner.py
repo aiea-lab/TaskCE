@@ -41,6 +41,10 @@ class FormulaSearchOptions:
     alpha: float | None = None
     min_acts: int | None = None
     max_iterations: int | None = None
+    attention_mode: str = "cross"
+    layout_seed: int | None = None
+    encoder_width: int = 96
+    readout_width: int = 32
 
 
 def add_cli_arguments(parser: argparse.ArgumentParser) -> None:
@@ -112,6 +116,10 @@ def add_cli_arguments(parser: argparse.ArgumentParser) -> None:
         "--max-iterations", type=int,
         help="Override the profile's neural training steps or pinned 2.a search iterations.",
     )
+    parser.add_argument("--attention-mode", choices=("cross", "causal", "bidirectional"), default="cross")
+    parser.add_argument("--layout-seed", type=int, default=None)
+    parser.add_argument("--encoder-width", type=int, default=96)
+    parser.add_argument("--readout-width", type=int, default=32)
     parser.add_argument("--quantile", type=float, default=None)
     parser.add_argument("--min-fit-fraction", type=float, default=0.05)
     parser.add_argument("--all-examples", action="store_true",
@@ -174,6 +182,10 @@ def options_from_args(args: argparse.Namespace) -> FormulaSearchOptions:
         beam=args.beam,
         length=args.length,
         max_iterations=args.max_iterations,
+        attention_mode=args.attention_mode,
+        layout_seed=args.layout_seed,
+        encoder_width=args.encoder_width,
+        readout_width=args.readout_width,
         quantile=args.quantile,
         min_fit_fraction=args.min_fit_fraction,
         all_examples=bool(args.all_examples),
@@ -231,7 +243,7 @@ def run(
         from formula_search.sweep import run_sweep
 
         backend = opts.backend or profile.search.backend
-        neural = backend in ("neural_search", "neural_weighted")
+        neural = backend == "neural_search"
         layer = opts.layer or ("embedding_norm" if neural else "layer.8")
         bundle = workspace.data_root.resolve_prepared_inputs(
             profile, override=prepared_dir
@@ -269,6 +281,10 @@ def run(
                 min_fit_fraction=opts.min_fit_fraction,
                 seed=profile.search.seed,
                 max_iterations=max_iterations,
+                attention_mode=opts.attention_mode,
+                layout_seed=opts.layout_seed,
+                encoder_width=opts.encoder_width,
+                readout_width=opts.readout_width,
                 chunk_size=opts.chunk_size,
                 max_chunks=opts.max_chunks,
                 neuron_batch_size=opts.neuron_batch_size,
@@ -297,7 +313,7 @@ def run(
         artifacts["weighted_formulas_csv"] = weighted_csv
 
     if "general" in stages:
-        if opts.backend in ("neural_search", "neural_weighted"):
+        if opts.backend == "neural_search":
             raise ValueError("Neural backends take prepared inputs through the search stage")
         from formula_search import analysis as general_analysis
 

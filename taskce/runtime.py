@@ -43,7 +43,7 @@ LayerName = NewType("LayerName", str)
 StageStatus = Literal["ok", "skipped", "failed"]
 RunStatus = Literal["running", "validated", "complete", "failed"]
 SearchBackendName = Literal[
-    "vectorized_search_2a", "new_search", "search", "neural_search", "neural_weighted"
+    "vectorized_search_2a", "new_search", "search", "neural_search"
 ]
 
 
