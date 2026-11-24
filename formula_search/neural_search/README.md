@@ -32,6 +32,8 @@ Bidirectional attention can visit every kept concept. Causal attention permits a
 
 Each update samples 24 complete formulas. Independent Bernoulli decisions choose the kept concepts. Cross-attention samples a weighted ordering of the retained IDs. Self-attention samples the next edge from the current token among the remaining reachable IDs. Categorical decisions supply the operators for the visited concepts after the first. The exact IoU of each completed binary formula supplies the reward. A policy gradient uses the mean reward of the other 23 samples as its baseline. Final evaluation decodes the trained outputs deterministically.
 
+Use `--learning-rate` to set Adam's learning rate and `--max-iterations` to set updates per neuron. The [tuning results](tuning_results.md) give the selected values and widths for each attention mode.
+
 ## Search and replay
 
 Pass the same prepared inputs and target IDs to both searches. These commands search neuron 0 in the last embedding normalization layer. Use `--ids all --min-fit-fraction 0` for all nonempty target masks.
