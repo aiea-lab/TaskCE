@@ -6,7 +6,7 @@ import argparse
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args
 
 from taskce.profiles import Profile
 from taskce.runtime import RunWorkspace, SearchBackendName
@@ -14,7 +14,7 @@ from taskce.runtime import RunWorkspace, SearchBackendName
 
 @dataclass(frozen=True)
 class FormulaSearchOptions:
-    layer: str = "layer.8"
+    layer: str | None = None
     inputs_dir: Path | None = None
     capture_root: Path | None = None
     capture_map: Path | None = None
@@ -40,13 +40,18 @@ class FormulaSearchOptions:
     checkpoint_name: str | None = None
     alpha: float | None = None
     min_acts: int | None = None
+    max_iterations: int | None = None
+    attention_mode: str = "cross"
+    layout_seed: int | None = None
+    encoder_width: int = 96
+    readout_width: int = 32
+    learning_rate: float = 0.01
 
 
 def add_cli_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--layer",
-        default="layer.8",
-        help="Prepared layer name to search (default: %(default)s).",
+        help="Prepared layer to search (neural backends default to embedding_norm, others to layer.8).",
     )
     parser.add_argument(
         "--inputs-dir",
@@ -102,15 +107,25 @@ def add_cli_arguments(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--backend",
-        choices=("vectorized_search_2a", "new_search", "search"),
+        choices=get_args(SearchBackendName),
         default=None,
         help="Override search backend from profile.",
     )
     parser.add_argument("--beam", type=int, default=None)
     parser.add_argument("--length", type=int, default=None)
+    parser.add_argument(
+        "--max-iterations", type=int,
+        help="Override the profile's neural training steps or pinned 2.a search iterations.",
+    )
+    parser.add_argument("--attention-mode", choices=("cross", "causal", "bidirectional"), default="cross")
+    parser.add_argument("--layout-seed", type=int, default=None)
+    parser.add_argument("--encoder-width", type=int, default=96)
+    parser.add_argument("--readout-width", type=int, default=32)
+    parser.add_argument("--learning-rate", type=float, default=0.01, help="Adam learning rate for neural search.")
     parser.add_argument("--quantile", type=float, default=None)
     parser.add_argument("--min-fit-fraction", type=float, default=0.05)
-    parser.add_argument("--all-examples", action="store_true")
+    parser.add_argument("--all-examples", action="store_true",
+                        help="Fit and score on every example, ignoring split labels.")
     parser.add_argument("--prefix-selection", action="store_true")
     parser.add_argument("--chunk-size", type=int, default=32)
     parser.add_argument("--max-chunks", type=int, default=None)
@@ -168,6 +183,12 @@ def options_from_args(args: argparse.Namespace) -> FormulaSearchOptions:
         backend=args.backend,
         beam=args.beam,
         length=args.length,
+        max_iterations=args.max_iterations,
+        attention_mode=args.attention_mode,
+        layout_seed=args.layout_seed,
+        encoder_width=args.encoder_width,
+        readout_width=args.readout_width,
+        learning_rate=args.learning_rate,
         quantile=args.quantile,
         min_fit_fraction=args.min_fit_fraction,
         all_examples=bool(args.all_examples),
@@ -224,26 +245,35 @@ def run(
     if "search" in stages:
         from formula_search.sweep import run_sweep
 
+        backend = opts.backend or profile.search.backend
+        neural = backend == "neural_search"
+        layer = opts.layer or ("embedding_norm" if neural else "layer.8")
         bundle = workspace.data_root.resolve_prepared_inputs(
             profile, override=prepared_dir
         )
-        if opts.layer not in bundle.layer_paths:
+        if layer not in bundle.layer_paths:
             available = ", ".join(sorted(bundle.layer_paths))
             raise FileNotFoundError(
-                f"Layer {opts.layer!r} not found in {bundle.directory}; "
+                f"Layer {layer!r} not found in {bundle.directory}; "
                 f"available layers: {available}"
             )
-        output_csv = workspace.output_dir / f"{opts.layer}.csv"
-        backend = opts.backend or profile.search.backend
+        output_csv = workspace.output_dir / f"{layer}.csv"
         beam = opts.beam if opts.beam is not None else profile.search.beam
         length = opts.length if opts.length is not None else profile.search.length
         quantile = opts.quantile if opts.quantile is not None else profile.search.quantile
-        metrics = {"layer": opts.layer, "backend": backend, "beam": beam, "length": length}
+        max_iterations = (
+            opts.max_iterations if opts.max_iterations is not None else profile.search.max_iterations
+        )
+        metrics = {"layer": layer, "backend": backend}
+        if neural:
+            metrics["training_steps"] = max_iterations
+        else:
+            metrics.update(beam=beam, length=length)
         with workspace.stage("search", metrics_out=metrics):
             run_sweep(
                 features_path=bundle.features_path,
-                activation_path=bundle.layer_paths[opts.layer],
-                layer=opts.layer,
+                activation_path=bundle.layer_paths[layer],
+                layer=layer,
                 output_path=output_csv,
                 beam=beam,
                 length=length,
@@ -253,7 +283,12 @@ def run(
                 quantile=quantile,
                 min_fit_fraction=opts.min_fit_fraction,
                 seed=profile.search.seed,
-                max_iterations=profile.search.max_iterations,
+                max_iterations=max_iterations,
+                attention_mode=opts.attention_mode,
+                layout_seed=opts.layout_seed,
+                encoder_width=opts.encoder_width,
+                readout_width=opts.readout_width,
+                learning_rate=opts.learning_rate,
                 chunk_size=opts.chunk_size,
                 max_chunks=opts.max_chunks,
                 neuron_batch_size=opts.neuron_batch_size,
@@ -263,8 +298,9 @@ def run(
                 prefix_selection=opts.prefix_selection,
             )
         search_csv_path = output_csv
-        artifacts["formulas_csv"] = output_csv
-        artifacts["formulas_manifest"] = output_csv.with_suffix(
+        artifact_name = "neural_search" if neural else "formulas"
+        artifacts[f"{artifact_name}_csv"] = output_csv
+        artifacts[f"{artifact_name}_manifest"] = output_csv.with_suffix(
             output_csv.suffix + ".manifest.json"
         )
 
@@ -281,11 +317,13 @@ def run(
         artifacts["weighted_formulas_csv"] = weighted_csv
 
     if "general" in stages:
+        if opts.backend == "neural_search":
+            raise ValueError("Neural backends take prepared inputs through the search stage")
         from formula_search import analysis as general_analysis
 
         task_name = profile.model.lora_task or profile.dataset.name
         checkpoint_name = opts.checkpoint_name or profile.model.checkpoint_name
-        module_layer = str(profile.model.resolve_module_path(opts.layer))
+        module_layer = str(profile.model.resolve_module_path(opts.layer or "layer.8"))
         act_path = opts.activation_path or workspace.data_root.activation_path(
             profile.model.model_id,
             profile.dataset.name,

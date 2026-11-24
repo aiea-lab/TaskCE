@@ -101,6 +101,16 @@ uv run taskce graph-analysis --profile snli --formula-path path/to/snli_beam_res
 uv run taskce ablation --profile snli --formula-path path/to/snli_beam_results.csv
 ```
 
+### Search the LLM's final embedding normalization with attention
+
+`neural_search` fits a fresh attention model for each neuron. Cross-attention gives each concept five output scores for inclusion, order, OR, AND and AND NOT. Bidirectional and causal self-attention use four output scores and read the formula order by following attention edges. This command searches neuron 0 with 256 updates on all examples.
+
+```sh
+uv run taskce formula-search --profile snli --backend neural_search --layer embedding_norm --ids 0 --max-iterations 256 --all-examples --chunk-size 1 --device cuda
+```
+
+The run saves the output table in vocabulary order, the decoded formula, and its measured IoU. Use `--encoder-width` to vary the query, key and value dimension, `--readout-width` to vary the readout's hidden dimension, and `--attention-mode` to choose the decoder. See the [method and replay instructions](formula_search/neural_search/README.md) and [SNLI full-layer and attention-path results](formula_search/neural_search/attention_experiment.md).
+
 ### Add a new study profile
 
 Built-in TOML profiles live in [`taskce/profiles/`](taskce/profiles/) (`snli`, `claim`, `fallacy`). To add a new study such as `bowman`, place `bowman.toml` in `$TASKCE_DATA_DIR/profiles/bowman.toml` or pass `--profile ./bowman.toml`. Profiles support single-level inheritance with `extends`:

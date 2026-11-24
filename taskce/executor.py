@@ -147,7 +147,7 @@ ANALYSES: Mapping[AnalysisName, AnalysisSpec] = {
             ),
             StageSpec(
                 "search",
-                "Chunked resumable formula search (pinned 2.a or new_search)",
+                "Fit symbolic or neural explanations on prepared neuron activations",
                 ResourceFlags.CUDA,
                 default=True,
             ),
