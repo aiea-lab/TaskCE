@@ -46,7 +46,7 @@ class FormulaSearchOptions:
 def add_cli_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--layer",
-        help="Prepared layer to search (neural_search defaults to embedding_norm, others to layer.8).",
+        help="Prepared layer to search (neural backends default to embedding_norm, others to layer.8).",
     )
     parser.add_argument(
         "--inputs-dir",
@@ -231,7 +231,7 @@ def run(
         from formula_search.sweep import run_sweep
 
         backend = opts.backend or profile.search.backend
-        neural = backend == "neural_search"
+        neural = backend in ("neural_search", "neural_weighted")
         layer = opts.layer or ("embedding_norm" if neural else "layer.8")
         bundle = workspace.data_root.resolve_prepared_inputs(
             profile, override=prepared_dir
@@ -297,8 +297,8 @@ def run(
         artifacts["weighted_formulas_csv"] = weighted_csv
 
     if "general" in stages:
-        if opts.backend == "neural_search":
-            raise ValueError("neural_search takes prepared inputs through the search stage")
+        if opts.backend in ("neural_search", "neural_weighted"):
+            raise ValueError("Neural backends take prepared inputs through the search stage")
         from formula_search import analysis as general_analysis
 
         task_name = profile.model.lora_task or profile.dataset.name

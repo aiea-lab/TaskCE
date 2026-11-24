@@ -103,13 +103,13 @@ uv run taskce ablation --profile snli --formula-path path/to/snli_beam_results.c
 
 ### Search the LLM's final embedding normalization with attention
 
-`neural_search` fits the final-token coordinates of `model.embedding_norm` one at a time. Run it against the same prepared SNLI features and activation capture used by the symbolic backends.
+`neural_search` fits a separate attention policy for each neuron and emits a Boolean formula using selected concept names, OR, AND, and AND NOT. This command searches neuron 0 using 256 full-context training updates.
 
 ```sh
-uv run taskce formula-search --profile snli --backend neural_search --layer embedding_norm --ids 0,1,2,3,4,5 --all-examples --chunk-size 1 --device cuda
+uv run taskce formula-search --profile snli --backend neural_search --layer embedding_norm --ids 0 --max-iterations 256 --all-examples --chunk-size 1 --device cuda
 ```
 
-The run directory contains `embedding_norm.csv`. With `--all-examples`, its `fit_iou` column reports the overlap across all 10,000 examples for each neuron. Follow the `attention_path` column to the concept weights and cutoff that reproduce its firing mask. See the [neural search method and replay example](formula_search/neural_search/README.md).
+The run's `embedding_norm.csv` records the formula, fit IoU, length in selected concept occurrences, and the fit IoU of its first 48 occurrences. Its `neural_trace_path` points to selected actions, policy and attention logits, ranks, and prefix IoUs. `neural_weighted` preserves the earlier dense weighted predictor. See the [method, comparison commands, and trace](formula_search/neural_search/README.md).
 
 ### Add a new study profile
 

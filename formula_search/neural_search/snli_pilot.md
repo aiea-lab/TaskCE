@@ -1,4 +1,6 @@
-# SNLI embedding normalization pilot
+# SNLI embedding normalization weighted-predictor pilot
+
+These historical results use the dense weighted predictor, now named `neural_weighted`. They do not measure the discrete formula model now named `neural_search`. See [the current method](README.md) and the forthcoming [layer sweep](snli_layer_sweep.md) for the discrete comparison.
 
 On six neurons, neural search reached mean IoU 0.2221 after 256 updates on all 10,000 examples. Pinned vectorized search 2.a reached 0.1758. Neural search led on four neurons. Neuron 3 favored 2.a by 0.0952 IoU.
 

@@ -1,5 +1,6 @@
 import csv
 import itertools
+import json
 from pathlib import Path
 
 import numpy as np
@@ -57,7 +58,7 @@ def _inputs(directory, perturb=False):
     return vectors, activation, split
 
 
-def _run(inputs, output, *extra):
+def _run(inputs, output, *extra, backend="neural_weighted"):
     from taskce.cli import main
 
     assert (
@@ -69,7 +70,7 @@ def _run(inputs, output, *extra):
                 "--ids",
                 "0,1",
                 "--backend",
-                "neural_search",
+                backend,
                 "--max-iterations",
                 "48",
                 "--quantile",
@@ -185,3 +186,129 @@ def test_all_example_search_scores_the_entire_context(tmp_path):
     assert int(row["fit_intersection"]) == np.count_nonzero(activation[:, 0]) == 12
     assert int(row["validation_n"]) == int(row["test_n"]) == 0
     assert float(row["fit_iou"]) == 1.0
+
+
+@pytest.mark.parametrize("operation", ["ATOM", "OR", "AND", "AND NOT"])
+def test_fit_formula_selects_and_replays_boolean_operations(operation):
+    from formula_search.formula_eval import FormulaEvaluator
+    from formula_search.neural_search.formula import fit_formula
+
+    vectors = _bits()
+    names = ["A", "B", "distractor"]
+    a, b, _ = vectors
+    target = {
+        "ATOM": a,
+        "OR": a | b,
+        "AND": a & b,
+        "AND NOT": a & ~b,
+    }[operation]
+    result = fit_formula(vectors, target, names, steps=128, seed=7, device="cpu")
+
+    expected_names = {"A"} if operation == "ATOM" else {"A", "B"}
+    assert len(result.indices) == len(expected_names)
+    assert {names[index] for index in result.indices} == expected_names
+    assert list(result.operations) == (["ATOM"] if operation == "ATOM" else ["ATOM", operation])
+    assert result.iou == pytest.approx(1.0)
+    prediction = vectors[result.indices[0]].copy()
+    prefixes = [prediction.copy()]
+    for index, action in zip(result.indices[1:], result.operations[1:]):
+        if action == "OR":
+            prediction |= vectors[index]
+        elif action == "AND":
+            prediction &= vectors[index]
+        elif action == "AND NOT":
+            prediction &= ~vectors[index]
+        else:
+            pytest.fail(f"Unexpected action: {action}")
+        prefixes.append(prediction.copy())
+    assert len(result.prefix_ious) == len(prefixes)
+    for prefix, reported in zip(prefixes, result.prefix_ious):
+        intersection = np.count_nonzero(prefix & target)
+        union = np.count_nonzero(prefix | target)
+        assert reported == pytest.approx(intersection / union if union else 0.0)
+    np.testing.assert_array_equal(prediction, target)
+    np.testing.assert_array_equal(FormulaEvaluator(names, vectors).evaluate(result.formula), target)
+
+
+def test_discrete_cli_all_examples_replays_named_formula(tmp_path):
+    from formula_search.formula_eval import FormulaEvaluator
+
+    vectors, activation, _ = _inputs(tmp_path)
+    output = tmp_path / "discrete" / "embedding_norm.csv"
+    _run(tmp_path, output, "--all-examples", backend="neural_search")
+    rows = _rows(output)
+    assert len(rows) == 2
+    evaluator = FormulaEvaluator(["A", "B", "C"], vectors)
+    for index, row in enumerate(rows):
+        assert row["status"] == "ok"
+        assert row["formula"] == ("A", "B")[index]
+        prediction = evaluator.evaluate(row["formula"])
+        target = activation[:, index] > 0.5
+        np.testing.assert_array_equal(prediction, target)
+        assert int(row["fit_n"]) == vectors.shape[1] == 24
+        assert int(row["fit_intersection"]) == np.count_nonzero(target)
+        assert float(row["fit_iou"]) == pytest.approx(1.0)
+        assert float(row["backend_fit_iou"]) == pytest.approx(1.0)
+        assert int(row["neural_concept_count"]) == 1
+        assert int(row["neural_unique_concepts"]) == 1
+        assert int(row["validation_n"]) == int(row["test_n"]) == 0
+
+    alone = tmp_path / "alone_discrete" / "embedding_norm.csv"
+    _run(tmp_path, alone, "--all-examples", "--ids", "1", backend="neural_search")
+    assert _rows(alone)[0]["formula"] == rows[1]["formula"]
+
+
+def test_formula_recovers_disjoint_concepts_beyond_48_and_audits_replay():
+    from formula_search.formula_eval import FormulaEvaluator
+    from formula_search.neural_search.formula import fit_formula
+
+    # Each positive example has its own concept; extra negative examples make
+    # the mask context include examples that must remain false throughout.
+    vectors = np.concatenate((np.eye(55, dtype=bool), np.zeros((55, 5), dtype=bool)), axis=1)
+    target = np.array([True] * 55 + [False] * 5)
+    names = [f"concept_{index}" for index in range(55)]
+    result = fit_formula(vectors, target, names, steps=48, seed=7, device="cpu")
+
+    assert len(result.indices) == 55
+    assert set(result.indices) == set(range(55))
+    assert result.operations == ("ATOM",) + ("OR",) * 54
+    assert result.iou == pytest.approx(1.0)
+    assert result.best_at_48.iou == pytest.approx(48 / 55)
+    assert result.truncated_48.iou == pytest.approx(48 / 55)
+    assert result.iou - result.best_at_48.iou == pytest.approx(7 / 55)
+    assert result.best_at_48.indices == result.indices[:48]
+    assert result.truncated_48.indices == result.indices[:48]
+    assert result.stop_reason == "perfect_iou"
+
+    for record in (result, result.best_at_48, result.truncated_48):
+        count = len(record.indices)
+        assert len(record.operations) == len(record.prefix_ious) == count
+        assert len(record.action_logits) == len(record.action_ranks) == count
+        assert len(record.attention_logits) == count
+        assert np.isfinite(record.action_logits).all()
+        assert np.isfinite(record.attention_logits).all()
+        assert all(1 <= rank <= 16 for rank in record.action_ranks)
+        expected = vectors[list(record.indices)].any(axis=0)
+        np.testing.assert_array_equal(record.predict(vectors), expected)
+        np.testing.assert_array_equal(FormulaEvaluator(names, vectors).evaluate(record.formula), expected)
+        assert record.iou == pytest.approx(np.count_nonzero(expected & target) / np.count_nonzero(expected | target))
+
+
+def test_discrete_trace_contains_actions_and_is_checked_on_resume(tmp_path):
+    _inputs(tmp_path)
+    output = tmp_path / "trace" / "embedding_norm.csv"
+    _run(tmp_path, output, "--all-examples", "--max-chunks", "1", backend="neural_search")
+    (row,) = _rows(output)
+    trace_path = output.parent / row["neural_trace_path"]
+    trace = json.loads(trace_path.read_text(encoding="utf-8"))
+    assert trace["indices"] == [0]
+    assert trace["names"] == ["A"]
+    assert trace["operations"] == ["ATOM"]
+    assert trace["prefix_ious"] == [1.0]
+    assert trace["fit_iou_at_48"] == float(row["neural_fit_iou_at_48"]) == 1.0
+    assert len(trace["action_logits"]) == len(trace["attention_logits"]) == 1
+    assert 1 <= trace["action_ranks"][0] <= 16
+    _run(tmp_path, output, "--all-examples", "--resume", backend="neural_search")
+    trace_path.write_text("{}", encoding="utf-8")
+    with pytest.raises(ValueError, match="changed neural trace"):
+        _run(tmp_path, output, "--all-examples", "--resume", backend="neural_search")

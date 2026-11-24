@@ -1,43 +1,43 @@
-# Reconstruct a neuron from concept masks
+# Search for a Boolean explanation of a neuron
 
-The context for one search is the measured firing mask of one neuron followed by every binary concept mask. Each token is a vector indexed by the same examples. The neuron supplies the attention query. The concept masks supply the keys and values. This starter model has one attention readout and zero transformer blocks.
+`neural_search` trains a fresh attention policy per neuron to select named concepts and combine them with OR, AND, and AND NOT. It thresholds the neuron's activations at the configured quantile and trains against that binary target. Every update sees the same target and every concept mask across every fit example. With `--all-examples`, the fit context covers the entire prepared dataset.
 
-The [SNLI pilot](snli_pilot.md) compares repeated full-context updates against pinned vectorized search 2.a on the same six neurons.
+The policy builds eight signed projections of the aligned concept masks and target, including a centered target correlation. It learns separate attention queries for the initial atom and the three later operators. The final action logit combines this attention score with a learned score derived from each candidate mask's true and false positive counts and the current formula's state.
 
-The sweep thresholds that neuron's final-token activations at the configured quantile. Attention compares its centered firing mask with each centered concept mask by cosine similarity. The model learns one gain per example in the query and a shared scale for the softmax. Each concept's resulting probability is its contribution wherever that concept is present.
+Training uses Adam to increase expected hard IoU under the action probabilities. A second loss term favors the ordering implied by exact candidate IoUs. The policy explores prefixes by perturbing action logits during training. After training, it orders actions by their unperturbed logits, examines up to 16 per prefix, and accepts the first that strictly improves hard IoU. It stops at perfect IoU or when all 16 proposals fail to improve it. A concept can occur multiple times.
 
-Every update sees the same tokens and all of the same examples. The model finds the firing cutoff with the best hard intersection over union (IoU) and minimizes `1 - IoU`. A straight-through estimator supplies gradients. The search retains the highest training IoU it sees, recalibrates the cutoff for the saved weights, and resets the parameters and optimizer for the next neuron.
+Formula length counts concept occurrences, including the initial atom and repeated names. The CSV reports the final fit IoU and `neural_fit_iou_at_48`. The latter evaluates the first 48 actions of the same trained policy, or the whole formula when it stops earlier.
 
 ## Run a comparison
 
-Use the same prepared inputs, layer, IDs and device for both commands. On the SNLI profile the neural search defaults to `embedding_norm` and 48 updates. Override the training budget with `--max-iterations`.
+Use the same prepared input directory, layer, neuron, threshold and device. The neural command trains for 256 updates. Pinned 2.a uses length and iteration limits of 48 and a beam of 40.
 
 ```sh
-uv run taskce formula-search --profile snli --stage search --layer embedding_norm --ids 0 --all-examples --chunk-size 1 --neuron-batch-size 1 --device cuda --backend neural_search
-uv run taskce formula-search --profile snli --stage search --layer embedding_norm --ids 0 --all-examples --chunk-size 1 --neuron-batch-size 1 --device cuda --backend vectorized_search_2a
+uv run taskce formula-search --profile snli --stage search --inputs-dir inputs --layer embedding_norm --ids 0 --all-examples --chunk-size 1 --device cuda --backend neural_search --max-iterations 256 --output runs/neural_0
+uv run taskce formula-search --profile snli --stage search --inputs-dir inputs --layer embedding_norm --ids 0 --all-examples --chunk-size 1 --device cuda --backend vectorized_search_2a --beam 40 --length 48 --max-iterations 48 --output runs/2a_0
 ```
 
-With `--all-examples`, `fit_iou` in `embedding_norm.csv` is the final overlap across all 10,000 SNLI examples. Omit the flag to fit on the prepared fit rows and score the frozen predictor on validation and test. The stage record in `run_meta.json` includes input reads, fitting, scoring and artifact writes. An invocation with one target gives a single-neuron stage time.
+Use `--ids all --min-fit-fraction 0` to include every coordinate with a positive target. With `--all-examples`, fit IoU measures overlap on all prepared examples. Omit that flag to train on the fit split and score the frozen formula on validation and test. The full 2,048-neuron comparison is in the [SNLI layer sweep](snli_layer_sweep.md).
 
-## Replay a saved neuron
+## Inspect and replay
 
-The neural CSV identifies the predictor in its `attention_path` column. Its NPZ contains every concept name and probability in the prepared feature order. The predicted neuron fires when the sum of the present concepts' probabilities reaches the stored cutoff. Positive additive weights can express some conjunctions and disjunctions. They cannot encode inhibition by concept presence.
+The CSV contains the rendered `formula`, the total and unique concept counts, and a relative `neural_trace_path` with a checksum. The JSON trace records selected indices, names and operators, prefix IoUs, `action_logits`, `attention_logits`, one-based `action_ranks`, `fit_iou_at_48`, and the stopping reason. Each logit is the selected action's score at that prefix. Rank 1 means the policy's first proposal passed the IoU check.
 
 ```python
 import csv
+import json
 from pathlib import Path
-
 import numpy as np
-from formula_search.neural_search import AttentionExplanation
+from formula_search.formula_eval import FormulaEvaluator
 
-csv_path = Path("run/embedding_norm.csv")
+csv_path = Path("runs/neural_0/embedding_norm.csv")
 with csv_path.open(newline="", encoding="utf-8") as stream:
-    row = next(r for r in csv.DictReader(stream) if r["status"] == "ok")
-
-with np.load("inputs/features.npz", allow_pickle=False) as features:
-    names = features["names"]
-    model = AttentionExplanation.load(csv_path.parent / row["attention_path"], names)
-    predicted_mask = model.predict(features["vectors"])
-    for index in np.argsort(-model.weights)[:10]:
-        print(names[index], float(model.weights[index]))
+    row = next(csv.DictReader(stream))
+trace = json.loads((csv_path.parent / row["neural_trace_path"]).read_text(encoding="utf-8"))
+with np.load("inputs/features.npz", allow_pickle=False) as data:
+    prediction = FormulaEvaluator(data["names"].astype(str), data["vectors"]).evaluate(row["formula"])
+for action in zip(trace["names"], trace["operations"], trace["action_logits"], trace["attention_logits"], trace["action_ranks"], trace["prefix_ious"]):
+    print(action)
 ```
+
+`neural_weighted` fits the dense thresholded attention predictor used in the [historical six-neuron pilot](snli_pilot.md).

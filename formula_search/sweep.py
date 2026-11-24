@@ -45,7 +45,11 @@ FIELDS = (
     "length",
     "min_fit_support",
 )
-NEURAL_FIELDS = (*FIELDS, "attention_path", "attention_sha256")
+WEIGHTED_FIELDS = (*FIELDS, "attention_path", "attention_sha256")
+FORMULA_NEURAL_FIELDS = (
+    *FIELDS, "neural_concept_count", "neural_unique_concepts", "neural_fit_iou_at_48",
+    "neural_trace_path", "neural_trace_sha256",
+)
 
 
 def score(target: np.ndarray, prediction: np.ndarray, split: np.ndarray) -> dict[str, Any]:
@@ -84,6 +88,10 @@ def _attention_path(output_path: Path, neuron: str) -> Path:
     return Path(f"{output_path.stem}.attention") / f"{neuron}.npz"
 
 
+def _trace_path(output_path: Path, neuron: str) -> Path:
+    return Path(f"{output_path.stem}.trace") / f"{neuron}.json"
+
+
 def run_sweep(
     *,
     features_path: Path,
@@ -110,14 +118,15 @@ def run_sweep(
     """Run resumable concept search over prepared NPZ inputs."""
     chosen_backend = backend or os.environ.get("TASKCE_BACKEND") or "new_search"
     pinned = chosen_backend == "vectorized_search_2a"
-    neural = chosen_backend == "neural_search"
+    neural = chosen_backend in ("neural_search", "neural_weighted")
+    weighted = chosen_backend == "neural_weighted"
     positive_options = {
         "chunk_size": chunk_size,
         "neuron_batch_size": neuron_batch_size,
     }
     if neural:
         if neuron_batch_size != 1:
-            raise ValueError("neural_search requires neuron_batch_size=1")
+            raise ValueError("Neural backends require neuron_batch_size=1")
         if prefix_selection:
             raise ValueError("prefix_selection is only supported with new_search")
         positive_options["max_iterations"] = max_iterations
@@ -134,12 +143,20 @@ def run_sweep(
     import torch
 
     if neural:
-        from formula_search.neural_search import algorithm as neural_algorithm
+        if weighted:
+            from formula_search.neural_search import algorithm as neural_algorithm
+        else:
+            from formula_search.neural_search import algorithm as neural_dependency
+            from formula_search.neural_search import formula as neural_algorithm
 
+        backend_modules = (neural_algorithm,) if weighted else (neural_algorithm, neural_dependency)
         backend_sha256: dict[str, str] = {
-            neural_algorithm.__name__: str(sha256_file(Path(neural_algorithm.__file__)))
+            module.__name__: str(sha256_file(Path(module.__file__)))
+            for module in backend_modules
         }
-        evaluator_sha256 = None
+        evaluator_sha256 = (
+            None if weighted else str(sha256_file(Path(__file__).with_name("formula_eval.py")))
+        )
     elif pinned:
         from formula_search.verify_2a import load_verified_2a
 
@@ -270,7 +287,7 @@ def run_sweep(
     expected = {"&".join(map(str, values)) for values in requested}
     if not completed <= expected or len(completed) != len(rows):
         raise ValueError("Saved results do not match requested targets")
-    if neural:
+    if weighted:
         for row in rows:
             if row["status"] != "ok":
                 continue
@@ -282,6 +299,19 @@ def run_sweep(
                 or row.get("attention_sha256") != sha256_file(attention)
             ):
                 raise ValueError(f"Missing or changed attention artifact: {attention}")
+
+    if neural and not weighted:
+        for row in rows:
+            if row["status"] not in ("ok", "no_formula"):
+                continue
+            relative = _trace_path(output_path, row["neuron"])
+            trace = output_path.parent / relative
+            if (
+                row.get("neural_trace_path") != relative.as_posix()
+                or not trace.is_file()
+                or row.get("neural_trace_sha256") != sha256_file(trace)
+            ):
+                raise ValueError(f"Missing or changed neural trace: {trace}")
 
     atomic_write_json(
         manifest_path,
@@ -308,12 +338,13 @@ def run_sweep(
 
     if neural:
         fit_vectors = vectors[:, fit]
-    else:
-        from sympy import Symbol
-
+    if not weighted:
         from formula_search.formula_eval import FormulaEvaluator
 
         evaluator = FormulaEvaluator(names, vectors)
+    if not neural:
+        from sympy import Symbol
+
         fit_features = [(Symbol(name), vector[fit]) for name, vector in zip(names, vectors)]
         if pinned:
             search_config = SearchConfig(
@@ -372,7 +403,7 @@ def run_sweep(
             backend_fit_iou: float | str = ""
             status = "ineligible"
             fitted = None
-            if neural:
+            if weighted:
                 if index in searchable:
                     fitted = neural_algorithm.fit_neuron(
                         fit_vectors,
@@ -384,6 +415,25 @@ def run_sweep(
                     prediction = fitted.predict(vectors)
                     backend_fit_iou = fitted.fit_iou
                     status = "ok"
+            elif neural:
+                if index in searchable:
+                    fitted = neural_algorithm.fit_formula(
+                        fit_vectors, target[fit], names, steps=max_iterations,
+                        seed=seed, device=device,
+                    )
+                    formula = fitted.formula
+                    backend_fit_iou = fitted.iou
+                    status = "ok" if formula else "no_formula"
+                    if formula:
+                        # Alternating operations create nested expressions in the
+                        # existing evaluator; give its parser room for this result.
+                        previous_limit = sys.getrecursionlimit()
+                        needed_limit = max(previous_limit, 2 * len(fitted.indices) + 100)
+                        try:
+                            sys.setrecursionlimit(needed_limit)
+                            prediction = evaluator.evaluate(formula)
+                        finally:
+                            sys.setrecursionlimit(previous_limit)
             else:
                 result = results.get(index)
                 if result is not None:
@@ -396,7 +446,8 @@ def run_sweep(
             if status != "ok":
                 prediction = np.zeros_like(target)
             metrics = score(target, prediction, split)
-            if status == "ok" and not math.isclose(
+            scored_formula = neural and not weighted and fitted is not None
+            if (status == "ok" or scored_formula) and not math.isclose(
                 metrics["fit_iou"], float(backend_fit_iou), abs_tol=2e-6
             ):
                 raise RuntimeError(f"Backend/scored fit IoU disagreement: {values}")
@@ -414,11 +465,36 @@ def run_sweep(
                 "length": "" if neural else length,
                 "min_fit_support": minimum,
             }
-            if status != "ok":
+            if status != "ok" and not scored_formula:
                 for split_name in ("fit", "validation", "test"):
                     for metric in ("iou", "predictions", "intersection"):
                         row[f"{split_name}_{metric}"] = ""
-            if fitted is not None:
+            if neural and not weighted:
+                row.update(
+                    neural_concept_count=len(fitted.indices) if fitted is not None else "",
+                    neural_unique_concepts=len(set(fitted.indices)) if fitted is not None else "",
+                    neural_fit_iou_at_48=fitted.best_at_48.iou if fitted is not None else "",
+                )
+                if fitted is not None:
+                    relative = _trace_path(output_path, neuron)
+                    trace_path = output_path.parent / relative
+                    atomic_write_json(trace_path, {
+                        "schema": 1,
+                        "indices": fitted.indices,
+                        "names": [str(names[i]) for i in fitted.indices],
+                        "operations": fitted.operations,
+                        "prefix_ious": fitted.prefix_ious,
+                        "action_logits": fitted.action_logits,
+                        "attention_logits": fitted.attention_logits,
+                        "action_ranks": fitted.action_ranks,
+                        "fit_iou_at_48": fitted.best_at_48.iou,
+                        "stop_reason": fitted.stop_reason,
+                    }, canonical=True)
+                    row.update(
+                        neural_trace_path=relative.as_posix(),
+                        neural_trace_sha256=sha256_file(trace_path),
+                    )
+            if weighted and fitted is not None:
                 relative = _attention_path(output_path, neuron)
                 payload = fitted.to_npz(names)
                 atomic_write_bytes(output_path.parent / relative, payload)
@@ -428,7 +504,8 @@ def run_sweep(
                 )
             rows.append(row)
 
-        persist_rows(output_path, rows, NEURAL_FIELDS if neural else FIELDS)
+        fields = WEIGHTED_FIELDS if weighted else FORMULA_NEURAL_FIELDS if neural else FIELDS
+        persist_rows(output_path, rows, fields)
         coverage = {
             "requested": len(requested),
             "completed": len(rows),
